@@ -1,0 +1,43 @@
+{
+  "name": "lokale-bildpruefung",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Rein lokale Prüfung visueller Bildduplikate im Browser",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint src --deny-warnings",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "node scripts/generate-test-zip.mjs && playwright test",
+    "generate:test-zip": "node scripts/generate-test-zip.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@zip.js/zip.js": "^2.8.2",
+    "idb": "^8.0.3",
+    "lucide-react": "^0.548.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^24.13.3",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "jsdom": "^27.0.1",
+    "jszip": "^3.10.1",
+    "oxlint": "^1.75.0",
+    "pngjs": "^7.0.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.0",
+    "vitest": "^4.0.18"
+  },
+  "packageManager": "pnpm@11.16.0"
+}

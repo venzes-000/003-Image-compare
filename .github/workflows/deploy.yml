@@ -1,0 +1,69 @@
+name: Auf GitHub Pages bereitstellen
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Prüfen und bauen
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v6
+
+      - name: pnpm einrichten
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.16.0
+          run_install: false
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Abhängigkeiten reproduzierbar installieren
+        run: pnpm install --frozen-lockfile
+
+      - name: Quellcode prüfen
+        run: pnpm lint
+
+      - name: Unit-Tests ausführen
+        run: pnpm test
+
+      - name: Produktions-Build erzeugen
+        run: pnpm build
+
+      - name: GitHub Pages konfigurieren
+        uses: actions/configure-pages@v5
+
+      - name: Statische Ausgabe hochladen
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    name: Bereitstellen
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Auf GitHub Pages veröffentlichen
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,157 @@
+export type SupportedImageFormat = 'jpeg' | 'png' | 'webp'
+export type SensitivityMode = 'strict' | 'balanced' | 'sensitive'
+export type Decision = 'unreviewed' | 'duplicate' | 'different' | 'later'
+export type GroupStatus = 'unreviewed' | 'reviewed'
+
+export type AnalysisPhase =
+  | 'idle'
+  | 'validating-zip'
+  | 'collecting-files'
+  | 'creating-previews'
+  | 'calculating-fingerprints'
+  | 'searching-candidates'
+  | 'comparing-candidates'
+  | 'creating-groups'
+  | 'preparing-results'
+  | 'completed'
+  | 'paused'
+  | 'cancelled'
+  | 'error'
+
+export interface AnalysisSettings {
+  mode: SensitivityMode
+  workerCount: number
+  pHashThreshold: number
+  dHashThreshold: number
+  aHashThreshold: number
+  minimumSsim: number
+  minimumHistogramSimilarity: number
+  candidateLimitPerImage: number
+}
+
+export interface ZipSummary {
+  totalEntries: number
+  supportedImages: number
+  skippedEntries: number
+  corruptedImages: number
+  totalUncompressedBytes: number
+  formats: SupportedImageFormat[]
+  warnings: string[]
+}
+
+export interface ImageFeatureRecord {
+  id: string
+  path: string
+  name: string
+  size: number
+  compressedSize: number
+  mime: string
+  format: SupportedImageFormat
+  width: number
+  height: number
+  aspectRatio: number
+  aHash: string
+  dHash: string
+  pHash: string
+  histogram: number[]
+  luminanceMean: number
+  gray: Uint8Array
+  thumbnailKey: string
+  decision: Decision
+}
+
+export interface SimilarityMetrics {
+  aHashDistance?: number
+  dHashDistance?: number
+  pHashDistance?: number
+  ssim?: number
+  histogramSimilarity?: number
+  featureMatchScore?: number
+  aiSimilarity?: number
+  aspectRatioDifference?: number
+  resolutionRatio?: number
+}
+
+export type SimilarityCategory =
+  | 'almost-certain-duplicate'
+  | 'probable-duplicate'
+  | 'needs-review'
+  | 'probably-different'
+
+export interface SimilarityAssessment {
+  score: number
+  confidence: 'very-high' | 'high' | 'medium' | 'low'
+  category: SimilarityCategory
+  reasons: string[]
+  metrics: SimilarityMetrics
+}
+
+export interface CandidateEdge extends SimilarityAssessment {
+  id: string
+  sourceId: string
+  targetId: string
+  strong: boolean
+}
+
+export interface DuplicateGroup {
+  id: string
+  referenceId: string
+  memberIds: string[]
+  uncertainIds: string[]
+  edgeIds: string[]
+  status: GroupStatus
+}
+
+export interface AnalysisProgress {
+  phase: AnalysisPhase
+  percent: number
+  processed: number
+  total: number
+  candidates: number
+  startedAt?: number
+  message: string
+}
+
+export interface AppError {
+  id: string
+  code:
+    | 'invalid-zip'
+    | 'encrypted-zip'
+    | 'corrupt-entry'
+    | 'unsupported-image'
+    | 'corrupt-image'
+    | 'limit-exceeded'
+    | 'browser-unsupported'
+    | 'storage-unavailable'
+    | 'worker-error'
+    | 'memory-pressure'
+    | 'cancelled'
+    | 'unknown'
+  message: string
+  detail?: string
+  path?: string
+  phase?: AnalysisPhase
+  recoverable: boolean
+}
+
+export interface AnalysisResult {
+  version: string
+  zipFingerprint: string
+  zipName: string
+  zipSize: number
+  analyzedAt: string
+  settings: AnalysisSettings
+  summary: ZipSummary
+  images: ImageFeatureRecord[]
+  edges: CandidateEdge[]
+  groups: DuplicateGroup[]
+  errors: AppError[]
+}
+
+export interface CompatibilityItem {
+  key: string
+  label: string
+  available: boolean
+  required: boolean
+  detail: string
+}
