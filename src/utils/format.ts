@@ -17,3 +17,13 @@ export function formatDuration(milliseconds: number): string {
 export function formatPercent(value: number): string {
   return `${new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(value)} %`
 }
+
+export function formatDistanceMeters(meters: number): string {
+  if (meters < 1_000) return `${Math.round(meters).toLocaleString('de-DE')} m`
+  return `${new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(meters / 1_000)} km`
+}
+
+export function formatCoordinates(latitude: number, longitude: number): string {
+  const formatter = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+  return `${formatter.format(latitude)}, ${formatter.format(longitude)}`
+}

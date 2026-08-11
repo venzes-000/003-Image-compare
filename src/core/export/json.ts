@@ -9,8 +9,9 @@ export interface ExportedImageRecord extends Omit<ImageFeatureRecord, 'gray'> {}
 
 export interface JsonAnalysisReport extends Omit<AnalysisResult, 'images'> {
   exportFormat: 'lokale-bildpruefung-json'
-  exportVersion: 1
+  exportVersion: 2
   exportedAt: string
+  metadataNotice: string
   images: ExportedImageRecord[]
 }
 
@@ -23,8 +24,9 @@ export function createJsonReportData(result: AnalysisResult, exportedAt = new Da
   return {
     ...result,
     exportFormat: 'lokale-bildpruefung-json',
-    exportVersion: 1,
+    exportVersion: 2,
     exportedAt,
+    metadataNotice: 'Dieser bewusst erzeugte JSON-Export kann EXIF-Aufnahmezeiten, Kameraangaben und genaue GPS-Koordinaten enthalten. Bitte entsprechend vertraulich behandeln.',
     summary: {
       ...result.summary,
       formats: [...result.summary.formats],
@@ -36,6 +38,7 @@ export function createJsonReportData(result: AnalysisResult, exportedAt = new Da
       ...edge,
       reasons: [...edge.reasons],
       metrics: { ...edge.metrics },
+      ...(edge.metadata ? { metadata: { ...edge.metadata, reasons: [...edge.metadata.reasons] } } : {}),
     })),
     groups: result.groups.map((group) => ({
       ...group,
@@ -52,10 +55,11 @@ export function createJsonBlob(result: AnalysisResult, options: JsonReportOption
 }
 
 function withoutAnalysisPixels(image: ImageFeatureRecord): ExportedImageRecord {
-  const { gray, ...metadata } = image
+  const { gray, metadata, ...record } = image
   void gray
   return {
-    ...metadata,
-    histogram: [...metadata.histogram],
+    ...record,
+    histogram: [...record.histogram],
+    ...(metadata ? { metadata: { ...metadata, warnings: [...metadata.warnings] } } : {}),
   }
 }

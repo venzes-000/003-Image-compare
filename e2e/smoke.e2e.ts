@@ -13,9 +13,9 @@ test('analysiert eine ZIP-Datei lokal und lädt einen CSV-Bericht herunter', asy
   await page.goto('./')
 
   await expect(
-    page.getByText(/Alle Bilder werden ausschlie(?:ß|ss)lich lokal in diesem Browser verarbeitet/i),
+    page.getByText(/Alle Bilder sowie vorhandene EXIF-, Aufnahmezeit- und GPS-Daten werden ausschließlich lokal/i),
   ).toBeVisible()
-  await expect(page.getByText(/keine Bilder hochgeladen|nicht .* Server .*übertragen/i)).toBeVisible()
+  await expect(page.getByText(/keine Bilder oder Metadaten hochgeladen/i)).toBeVisible()
 
   const fileInput = page.locator('input[type="file"][accept*="zip"], input[type="file"]').first()
   await expect(fileInput).toBeAttached()

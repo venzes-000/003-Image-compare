@@ -49,7 +49,7 @@ export function AnalysisSettings({ settings, cacheEnabled, disabled, onChange, o
       <div className="cache-setting">
         <label>
           <input type="checkbox" checked={cacheEnabled} disabled={disabled || typeof indexedDB === 'undefined'} onChange={(event) => onCacheChange(event.target.checked)} />
-          <span><Database size={18} aria-hidden="true" /><strong>Analyse lokal zwischenspeichern</strong><small>Optional. Speichert nur kleine Vorschauen, Merkmale und Entscheidungen auf diesem Gerät – keine Originalbilder.</small></span>
+          <span><Database size={18} aria-hidden="true" /><strong>Analyse lokal zwischenspeichern</strong><small>Optional. Speichert kleine Vorschauen, Merkmale, Entscheidungen und vorhandene EXIF-/GPS-Daten auf diesem Gerät – keine Originalbilder.</small></span>
         </label>
         <button className="text-button danger-text" type="button" disabled={disabled || typeof indexedDB === 'undefined'} onClick={onClearCache}>Lokale Analysedaten löschen</button>
       </div>

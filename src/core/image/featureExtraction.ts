@@ -1,6 +1,6 @@
 import { averageHash, differenceHash, perceptualHash } from '../hashing'
 import { APP_LIMITS } from '../config/limits'
-import type { ImageFeatureRecord, SupportedImageFormat } from '../types'
+import type { CaptureMetadata, ImageFeatureRecord, SupportedImageFormat } from '../types'
 
 export interface ImageIdentity {
   id: string
@@ -10,6 +10,7 @@ export interface ImageIdentity {
   compressedSize: number
   mime: string
   format: SupportedImageFormat
+  archiveModifiedAt?: string
 }
 
 export function rgbaToGray(data: Uint8ClampedArray): Uint8Array {
@@ -70,13 +71,16 @@ export function createFeatureRecord(
   width: number,
   height: number,
   imageData: ImageData,
+  metadata?: CaptureMetadata,
 ): ImageFeatureRecord {
+  const { archiveModifiedAt: _archiveModifiedAt, ...featureIdentity } = identity
+  void _archiveModifiedAt
   const gray = rgbaToGray(imageData.data)
   const luminanceMean = gray.reduce((sum, value) => sum + value, 0) / Math.max(1, gray.length) / 255
   const analysisSize = APP_LIMITS.analysisSize
 
   return {
-    ...identity,
+    ...featureIdentity,
     width,
     height,
     aspectRatio: width / Math.max(1, height),
@@ -85,6 +89,7 @@ export function createFeatureRecord(
     pHash: perceptualHash(gray, analysisSize, analysisSize),
     histogram: createHsvHistogram(imageData.data),
     luminanceMean,
+    ...(metadata ? { metadata } : {}),
     gray,
     thumbnailKey: `${identity.id}:thumbnail`,
     decision: 'unreviewed',

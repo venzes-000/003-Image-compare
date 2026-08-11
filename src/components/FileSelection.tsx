@@ -59,7 +59,7 @@ export function FileSelection({ file, disabled, onSelect }: FileSelectionProps) 
         <input ref={inputRef} className="sr-only" type="file" accept=".zip,application/zip" onChange={handleChange} disabled={disabled} aria-label="ZIP-Datei auswählen" />
       </div>
       <div className="file-guidance">
-        <span><Images size={17} aria-hidden="true" /> JPG, PNG und WebP</span>
+        <span><Images size={17} aria-hidden="true" /> JPG, PNG, WebP, HEIC/HEIF, AVIF, GIF, BMP und TIFF</span>
         <span><Archive size={17} aria-hidden="true" /> Bis zu {APP_LIMITS.maxImages.toLocaleString('de-DE')} Bilder</span>
         <span><Info size={17} aria-hidden="true" /> Tab während der Analyse geöffnet lassen</span>
       </div>

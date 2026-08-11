@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { Blend, Columns2, Contrast, Minus, Move, Plus, X } from 'lucide-react'
 import type { CandidateEdge, ImageFeatureRecord } from '../core/types'
 import { useThumbnailUrl } from '../hooks/useThumbnailUrl'
-import { formatBytes } from '../utils/format'
+import { formatBytes, formatCoordinates, formatDistanceMeters, formatDuration } from '../utils/format'
 
 type ViewMode = 'side' | 'overlay' | 'difference'
 
@@ -80,8 +80,8 @@ export function ComparisonDialog({ reference, candidate, edge, onClose }: Compar
           )}
         </div>
         <div className="comparison-details">
-          {[reference, candidate].map((image, index) => <dl key={image.id}><div><dt>Rolle</dt><dd>{index === 0 ? 'Referenz' : 'Kandidat'}</dd></div><div><dt>Datei</dt><dd>{image.name}</dd></div><div><dt>Pfad</dt><dd>{image.path}</dd></div><div><dt>Auflösung</dt><dd>{image.width} × {image.height}</dd></div><div><dt>Größe</dt><dd>{formatBytes(image.size)}</dd></div></dl>)}
-          <dl className="metrics"><div><dt>Ähnlichkeitswert</dt><dd>{edge ? `${Math.round(edge.score)} %` : '–'}</dd></div><div><dt>pHash-Distanz</dt><dd>{edge?.metrics.pHashDistance ?? '–'}</dd></div><div><dt>dHash-Distanz</dt><dd>{edge?.metrics.dHashDistance ?? '–'}</dd></div><div><dt>SSIM</dt><dd>{edge?.metrics.ssim?.toFixed(3) ?? '–'}</dd></div><div><dt>Farbähnlichkeit</dt><dd>{edge?.metrics.histogramSimilarity ? `${Math.round(edge.metrics.histogramSimilarity * 100)} %` : '–'}</dd></div></dl>
+          {[reference, candidate].map((image, index) => <dl key={image.id}><div><dt>Rolle</dt><dd>{index === 0 ? 'Referenz' : 'Kandidat'}</dd></div><div><dt>Datei</dt><dd>{image.name}</dd></div><div><dt>Pfad</dt><dd>{image.path}</dd></div><div><dt>Format</dt><dd>{image.format.toUpperCase()}</dd></div><div><dt>Auflösung</dt><dd>{image.width} × {image.height}</dd></div><div><dt>Größe</dt><dd>{formatBytes(image.size)}</dd></div>{image.metadata?.capturedAt && <div><dt>Aufgenommen</dt><dd>{new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(image.metadata.capturedAt))}</dd></div>}{image.metadata?.latitude !== undefined && image.metadata.longitude !== undefined && <div><dt>GPS</dt><dd>{formatCoordinates(image.metadata.latitude, image.metadata.longitude)}</dd></div>}{(image.metadata?.cameraMake || image.metadata?.cameraModel) && <div><dt>Kamera</dt><dd>{[image.metadata.cameraMake, image.metadata.cameraModel].filter(Boolean).join(' ')}</dd></div>}{image.metadata?.lensModel && <div><dt>Objektiv</dt><dd>{image.metadata.lensModel}</dd></div>}</dl>)}
+          <dl className="metrics"><div><dt>Bildähnlichkeit</dt><dd>{edge ? `${Math.round(edge.score)} %` : '–'}</dd></div><div><dt>pHash-Distanz</dt><dd>{edge?.metrics.pHashDistance ?? '–'}</dd></div><div><dt>dHash-Distanz</dt><dd>{edge?.metrics.dHashDistance ?? '–'}</dd></div><div><dt>SSIM</dt><dd>{edge?.metrics.ssim?.toFixed(3) ?? '–'}</dd></div><div><dt>Farbähnlichkeit</dt><dd>{edge?.metrics.histogramSimilarity ? `${Math.round(edge.metrics.histogramSimilarity * 100)} %` : '–'}</dd></div>{edge?.metadata?.gpsDistanceMeters !== undefined && <div><dt>GPS-Abstand</dt><dd>{formatDistanceMeters(edge.metadata.gpsDistanceMeters)}</dd></div>}{edge?.metadata?.captureTimeDifferenceSeconds !== undefined && <div><dt>Zeitabstand</dt><dd>{formatDuration(edge.metadata.captureTimeDifferenceSeconds * 1_000)}</dd></div>}{edge?.metadata?.sameCameraModel !== undefined && <div><dt>Kameraabgleich</dt><dd>{edge.metadata.sameCameraModel ? 'gleiches Modell' : 'verschiedene Modelle'}</dd></div>}</dl>
         </div>
         <p className="score-disclaimer">Der Prozentwert ist ein technischer Ähnlichkeitswert und keine mathematische Garantie.</p>
       </div>

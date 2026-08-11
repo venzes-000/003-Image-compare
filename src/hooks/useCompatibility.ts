@@ -49,7 +49,7 @@ export function useCompatibility(): { items: CompatibilityItem[]; ready: boolean
         label: 'WebAssembly',
         available: typeof WebAssembly !== 'undefined',
         required: false,
-        detail: 'Für spätere optionale Tiefenprüfungen.',
+        detail: typeof WebAssembly !== 'undefined' ? 'Lokale HEIC-/HEIF-Dekodierung ist verfügbar.' : 'HEIC-/HEIF-Dateien können ohne WebAssembly nicht dekodiert werden.',
       },
       {
         key: 'webgl',

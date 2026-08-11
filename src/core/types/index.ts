@@ -1,4 +1,12 @@
-export type SupportedImageFormat = 'jpeg' | 'png' | 'webp'
+export type SupportedImageFormat =
+  | 'jpeg'
+  | 'png'
+  | 'webp'
+  | 'heic'
+  | 'avif'
+  | 'gif'
+  | 'bmp'
+  | 'tiff'
 export type SensitivityMode = 'strict' | 'balanced' | 'sensitive'
 export type Decision = 'unreviewed' | 'duplicate' | 'different' | 'later'
 export type GroupStatus = 'unreviewed' | 'reviewed'
@@ -55,9 +63,34 @@ export interface ImageFeatureRecord {
   pHash: string
   histogram: number[]
   luminanceMean: number
+  metadata?: CaptureMetadata
   gray: Uint8Array
   thumbnailKey: string
   decision: Decision
+}
+
+export interface CaptureMetadata {
+  latitude?: number
+  longitude?: number
+  altitudeMeters?: number
+  capturedAt?: string
+  captureTimeHasTimezone?: boolean
+  cameraMake?: string
+  cameraModel?: string
+  lensModel?: string
+  software?: string
+  orientation?: number
+  archiveModifiedAt?: string
+  warnings: string[]
+}
+
+export interface MetadataAssessment {
+  status: 'corroborates' | 'neutral' | 'conflicts' | 'unavailable'
+  contextScore?: number
+  gpsDistanceMeters?: number
+  captureTimeDifferenceSeconds?: number
+  sameCameraModel?: boolean
+  reasons: string[]
 }
 
 export interface SimilarityMetrics {
@@ -91,6 +124,7 @@ export interface CandidateEdge extends SimilarityAssessment {
   sourceId: string
   targetId: string
   strong: boolean
+  metadata?: MetadataAssessment
 }
 
 export interface DuplicateGroup {

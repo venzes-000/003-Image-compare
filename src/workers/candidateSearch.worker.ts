@@ -5,6 +5,7 @@ import {
   calculateGlobalSsim,
   calculateSimilarityAssessment,
   compareHistograms,
+  assessMetadata,
 } from '../core/similarity'
 import type { CandidateEdge, ImageFeatureRecord } from '../core/types'
 import type { CandidateWorkerRequest, CandidateWorkerResponse } from './workerProtocol'
@@ -151,6 +152,7 @@ async function searchCandidates(
       },
       settings,
     )
+    const metadata = assessMetadata(source.metadata, target.metadata)
 
     if (assessment.category !== 'probably-different') {
       edges.push({
@@ -160,6 +162,7 @@ async function searchCandidates(
         strong:
           assessment.category === 'almost-certain-duplicate' ||
           (assessment.category === 'probable-duplicate' && assessment.score >= 84),
+        metadata,
         ...assessment,
       })
     }

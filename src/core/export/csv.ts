@@ -1,4 +1,10 @@
-import type { AnalysisResult, CandidateEdge, DuplicateGroup, ImageFeatureRecord } from '../types'
+import type {
+  AnalysisResult,
+  CandidateEdge,
+  DuplicateGroup,
+  ImageFeatureRecord,
+  MetadataAssessment,
+} from '../types'
 
 export const CSV_BOM = '\ufeff'
 export const DEFAULT_CSV_DELIMITER = ';'
@@ -6,6 +12,8 @@ export const DEFAULT_CSV_DELIMITER = ';'
 export interface CsvOptions {
   delimiter?: ',' | ';' | '\t'
   includeBom?: boolean
+  /** Exact coordinates are deliberately excluded unless explicitly requested. */
+  includeExactGps?: boolean
 }
 
 export const CSV_REPORT_HEADERS = [
@@ -28,10 +36,39 @@ export const CSV_REPORT_HEADERS = [
   'Referenzhöhe',
   'Kandidatenbreite',
   'Kandidatenhöhe',
+  'Referenzformat',
+  'Kandidatenformat',
+  'Referenz-Aufnahmezeit',
+  'Kandidaten-Aufnahmezeit',
+  'Referenz-Archivänderung',
+  'Kandidaten-Archivänderung',
+  'Referenzkamera',
+  'Kandidatenkamera',
+  'Referenzobjektiv',
+  'Kandidatenobjektiv',
+  'Referenz-GPS vorhanden',
+  'Kandidaten-GPS vorhanden',
+  'Metadatenstatus',
+  'Metadaten-Kontextwert',
+  'GPS-Abstand (m)',
+  'Zeitabstand (s)',
+  'Gleiches Kameramodell',
+  'Metadatenhinweise',
+] as const
+
+const EXACT_GPS_HEADERS = [
+  'Referenz-Breitengrad',
+  'Referenz-Längengrad',
+  'Kandidaten-Breitengrad',
+  'Kandidaten-Längengrad',
 ] as const
 
 export function createCsvReport(result: AnalysisResult, options: CsvOptions = {}): string {
-  const rows: unknown[][] = [Array.from(CSV_REPORT_HEADERS)]
+  const includeExactGps = options.includeExactGps === true
+  const rows: unknown[][] = [[
+    ...CSV_REPORT_HEADERS,
+    ...(includeExactGps ? EXACT_GPS_HEADERS : []),
+  ]]
   const images = new Map(result.images.map((image) => [image.id, image]))
   const edges = createEdgeMap(result.edges)
 
@@ -42,7 +79,7 @@ export function createCsvReport(result: AnalysisResult, options: CsvOptions = {}
       const candidate = images.get(candidateId)
       if (candidate === undefined) continue
       const edge = edges.get(edgeKey(reference.id, candidate.id))
-      rows.push(csvReportRow(group, reference, candidate, edge))
+      rows.push(csvReportRow(group, reference, candidate, edge, includeExactGps))
     }
   }
   return formatCsv(rows, options)
@@ -97,8 +134,9 @@ function csvReportRow(
   reference: ImageFeatureRecord,
   candidate: ImageFeatureRecord,
   edge: CandidateEdge | undefined,
+  includeExactGps: boolean,
 ): unknown[] {
-  return [
+  const row: unknown[] = [
     group.id,
     group.status === 'reviewed' ? 'Geprüft' : 'Ungeprüft',
     reference.name,
@@ -118,7 +156,58 @@ function csvReportRow(
     reference.height,
     candidate.width,
     candidate.height,
+    reference.format.toUpperCase(),
+    candidate.format.toUpperCase(),
+    reference.metadata?.capturedAt,
+    candidate.metadata?.capturedAt,
+    reference.metadata?.archiveModifiedAt,
+    candidate.metadata?.archiveModifiedAt,
+    cameraLabel(reference),
+    cameraLabel(candidate),
+    reference.metadata?.lensModel,
+    candidate.metadata?.lensModel,
+    yesNo(hasGps(reference)),
+    yesNo(hasGps(candidate)),
+    metadataStatusLabel(edge?.metadata?.status),
+    edge?.metadata?.contextScore,
+    edge?.metadata?.gpsDistanceMeters,
+    edge?.metadata?.captureTimeDifferenceSeconds,
+    yesNo(edge?.metadata?.sameCameraModel),
+    edge?.metadata?.reasons.join(' | '),
   ]
+
+  if (includeExactGps) {
+    row.push(
+      reference.metadata?.latitude,
+      reference.metadata?.longitude,
+      candidate.metadata?.latitude,
+      candidate.metadata?.longitude,
+    )
+  }
+  return row
+}
+
+function cameraLabel(image: ImageFeatureRecord): string | undefined {
+  const parts = [image.metadata?.cameraMake, image.metadata?.cameraModel].filter(
+    (value): value is string => Boolean(value),
+  )
+  return parts.length > 0 ? parts.join(' ') : undefined
+}
+
+function hasGps(image: ImageFeatureRecord): boolean {
+  return Number.isFinite(image.metadata?.latitude) && Number.isFinite(image.metadata?.longitude)
+}
+
+function yesNo(value: boolean | undefined): string | undefined {
+  return value === undefined ? undefined : value ? 'Ja' : 'Nein'
+}
+
+function metadataStatusLabel(status: MetadataAssessment['status'] | undefined): string | undefined {
+  if (status === 'corroborates') return 'Stützt den visuellen Treffer'
+  if (status === 'conflicts') return 'Widersprüchlicher Kontext'
+  if (status === 'neutral') return 'Neutraler Kontext'
+  if (status === 'unavailable') return 'Nicht verfügbar'
+  return undefined
 }
 
 function decisionLabel(decision: ImageFeatureRecord['decision']): string {

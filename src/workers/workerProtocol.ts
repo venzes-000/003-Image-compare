@@ -15,6 +15,7 @@ export interface AnalyzeImagePayload {
     compressedSize: number
     mime: string
     format: SupportedImageFormat
+    archiveModifiedAt?: string
   }
   buffer: ArrayBuffer
 }

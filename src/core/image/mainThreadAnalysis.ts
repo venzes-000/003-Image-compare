@@ -1,5 +1,7 @@
 import { APP_LIMITS } from '../config/limits'
 import { createFeatureRecord } from './featureExtraction'
+import { extractCaptureMetadata } from './metadataExtraction'
+import { decodeSpecialImage, needsSpecialDecoder } from './specialDecoders'
 import type { AnalyzeImagePayload, ImageAnalyzedPayload } from '../../workers/workerProtocol'
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
@@ -23,13 +25,34 @@ async function decodeWithImageElement(blob: Blob): Promise<HTMLImageElement> {
 
 export async function analyzeImageOnMainThread(payload: AnalyzeImagePayload): Promise<ImageAnalyzedPayload> {
   const blob = new Blob([payload.buffer], { type: payload.image.mime })
+  const metadata = await extractCaptureMetadata(payload.buffer, payload.image.archiveModifiedAt)
   let bitmap: ImageBitmap | undefined
   let source: CanvasImageSource
   let width: number
   let height: number
 
   try {
-    if ('createImageBitmap' in window) {
+    if (needsSpecialDecoder(payload.image.format)) {
+      const decoded = await decodeSpecialImage(blob, payload.buffer, payload.image.format)
+      bitmap = decoded.bitmap
+      width = decoded.width
+      height = decoded.height
+      if (bitmap) {
+        source = bitmap
+      } else if (decoded.rgba) {
+        const decodedCanvas = document.createElement('canvas')
+        decodedCanvas.width = width
+        decodedCanvas.height = height
+        const decodedContext = decodedCanvas.getContext('2d')
+        if (!decodedContext) throw new Error('Der Spezialdecoder konnte kein Bild erzeugen.')
+        const decodedImageData = new ImageData(width, height)
+        decodedImageData.data.set(decoded.rgba)
+        decodedContext.putImageData(decodedImageData, 0, 0)
+        source = decodedCanvas
+      } else {
+        throw new Error('Der Spezialdecoder lieferte keine Bilddaten.')
+      }
+    } else if ('createImageBitmap' in window) {
       bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' })
       source = bitmap
       width = bitmap.width
@@ -58,7 +81,7 @@ export async function analyzeImageOnMainThread(payload: AnalyzeImagePayload): Pr
     thumbnailContext.drawImage(source, 0, 0, thumbnailCanvas.width, thumbnailCanvas.height)
     const thumbnailBlob = await canvasToBlob(thumbnailCanvas, 'image/webp', 0.78)
     const thumbnail = await thumbnailBlob.arrayBuffer()
-    const feature = createFeatureRecord(payload.image, width, height, imageData)
+    const feature = createFeatureRecord(payload.image, width, height, imageData, metadata)
 
     return { taskId: payload.taskId, feature, thumbnail, thumbnailMime: thumbnailBlob.type }
   } finally {
