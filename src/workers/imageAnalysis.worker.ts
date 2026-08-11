@@ -2,6 +2,8 @@
 
 import { APP_LIMITS } from '../core/config/limits'
 import { createFeatureRecord } from '../core/image/featureExtraction'
+import { extractCaptureMetadata } from '../core/image/metadataExtraction'
+import { decodeSpecialImage, needsSpecialDecoder } from '../core/image/specialDecoders'
 import type { ImageWorkerRequest, ImageWorkerResponse } from './workerProtocol'
 
 declare const self: DedicatedWorkerGlobalScope
@@ -19,12 +21,40 @@ self.onmessage = async (event: MessageEvent<ImageWorkerRequest>) => {
   }
 
   const { taskId, image, buffer } = event.data.payload
+  let bitmap: ImageBitmap | undefined
   try {
     cancelled = false
     const blob = new Blob([buffer], { type: image.mime })
-    const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' })
+    const metadata = await extractCaptureMetadata(buffer, image.archiveModifiedAt)
+    let source: CanvasImageSource
+    let width: number
+    let height: number
+    if (needsSpecialDecoder(image.format)) {
+      const decoded = await decodeSpecialImage(blob, buffer, image.format)
+      width = decoded.width
+      height = decoded.height
+      bitmap = decoded.bitmap
+      if (bitmap) {
+        source = bitmap
+      } else if (decoded.rgba) {
+        const decodedCanvas = new OffscreenCanvas(width, height)
+        const decodedContext = decodedCanvas.getContext('2d')
+        if (!decodedContext) throw new Error('Der Spezialdecoder konnte kein Bild erzeugen.')
+        const decodedImageData = new ImageData(width, height)
+        decodedImageData.data.set(decoded.rgba)
+        decodedContext.putImageData(decodedImageData, 0, 0)
+        source = decodedCanvas
+      } else {
+        throw new Error('Der Spezialdecoder lieferte keine Bilddaten.')
+      }
+    } else {
+      bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' })
+      source = bitmap
+      width = bitmap.width
+      height = bitmap.height
+    }
     if (cancelled) {
-      bitmap.close()
+      bitmap?.close()
       return
     }
 
@@ -32,21 +62,22 @@ self.onmessage = async (event: MessageEvent<ImageWorkerRequest>) => {
     const analysisCanvas = new OffscreenCanvas(analysisSize, analysisSize)
     const analysisContext = analysisCanvas.getContext('2d', { willReadFrequently: true })
     if (!analysisContext) throw new Error('Der Analyse-Canvas konnte nicht initialisiert werden.')
-    analysisContext.drawImage(bitmap, 0, 0, analysisSize, analysisSize)
+    analysisContext.drawImage(source, 0, 0, analysisSize, analysisSize)
     const imageData = analysisContext.getImageData(0, 0, analysisSize, analysisSize)
 
     const maxEdge = APP_LIMITS.thumbnailMaxEdge
-    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height))
-    const thumbnailWidth = Math.max(1, Math.round(bitmap.width * scale))
-    const thumbnailHeight = Math.max(1, Math.round(bitmap.height * scale))
+    const scale = Math.min(1, maxEdge / Math.max(width, height))
+    const thumbnailWidth = Math.max(1, Math.round(width * scale))
+    const thumbnailHeight = Math.max(1, Math.round(height * scale))
     const thumbnailCanvas = new OffscreenCanvas(thumbnailWidth, thumbnailHeight)
     const thumbnailContext = thumbnailCanvas.getContext('2d')
     if (!thumbnailContext) throw new Error('Die Vorschau konnte nicht erzeugt werden.')
-    thumbnailContext.drawImage(bitmap, 0, 0, thumbnailWidth, thumbnailHeight)
+    thumbnailContext.drawImage(source, 0, 0, thumbnailWidth, thumbnailHeight)
     const thumbnailBlob = await thumbnailCanvas.convertToBlob({ type: 'image/webp', quality: 0.78 })
     const thumbnail = await thumbnailBlob.arrayBuffer()
-    const feature = createFeatureRecord(image, bitmap.width, bitmap.height, imageData)
-    bitmap.close()
+    const feature = createFeatureRecord(image, width, height, imageData, metadata)
+    bitmap?.close()
+    bitmap = undefined
 
     respond(
       { type: 'IMAGE_ANALYZED', payload: { taskId, feature, thumbnail, thumbnailMime: thumbnailBlob.type } },
@@ -63,6 +94,8 @@ self.onmessage = async (event: MessageEvent<ImageWorkerRequest>) => {
       },
     }
     respond(response)
+  } finally {
+    bitmap?.close()
   }
 }
 

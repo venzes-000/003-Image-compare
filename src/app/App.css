@@ -237,6 +237,7 @@
 .site-footer { border-top: 1px solid var(--line); background: #edf1f0; }
 .site-footer > div { width: min(1180px, calc(100% - 40px)); margin: 0 auto; min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 20px; color: var(--muted); font-size: 10.5px; }
 .site-footer span { display: inline-flex; align-items: center; gap: 6px; }
+.site-footer a { color: inherit; text-underline-offset: 2px; }
 
 @media (max-width: 980px) {
   .intro, .workspace-grid { grid-template-columns: 1fr; }

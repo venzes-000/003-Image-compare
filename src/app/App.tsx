@@ -4,6 +4,7 @@ import { AnalysisEngine, type AnalysisCacheAdapter } from '../core/pipeline/anal
 import { createDefaultSettings } from '../core/config/limits'
 import { createZipFingerprint, zipArchiveService } from '../core/zip'
 import { analysisStorage } from '../core/storage'
+import { decodeSpecialImage, needsSpecialDecoder } from '../core/image/specialDecoders'
 import {
   createCleanedFileListBlob,
   createCsvBlob,
@@ -54,6 +55,35 @@ interface ComparisonSelection {
 const cacheAdapter: AnalysisCacheAdapter = {
   saveThumbnail: (fingerprint, key, blob) => analysisStorage.saveThumbnail(fingerprint, key, blob),
   saveAnalysis: (result) => analysisStorage.saveAnalysis(result.zipFingerprint, result),
+}
+
+async function createBrowserPreview(blob: Blob, format: ImageFeatureRecord['format']): Promise<Blob> {
+  const buffer = await blob.arrayBuffer()
+  const decoded = await decodeSpecialImage(blob, buffer, format)
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = decoded.width
+    canvas.height = decoded.height
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Die Originalansicht konnte nicht vorbereitet werden.')
+    if (decoded.bitmap) {
+      context.drawImage(decoded.bitmap, 0, 0)
+    } else if (decoded.rgba) {
+      const imageData = new ImageData(decoded.width, decoded.height)
+      imageData.data.set(decoded.rgba)
+      context.putImageData(imageData, 0, 0)
+    } else {
+      throw new Error('Der Bilddecoder lieferte keine darstellbaren Daten.')
+    }
+    return await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (preview) => preview ? resolve(preview) : reject(new Error('Die Originalansicht konnte nicht erzeugt werden.')),
+        'image/png',
+      )
+    })
+  } finally {
+    decoded.bitmap?.close()
+  }
 }
 
 function App() {
@@ -268,7 +298,10 @@ function App() {
     if (popup) popup.opener = null
     try {
       const extracted = await zipArchiveService.extractImage(file, image.path)
-      const url = URL.createObjectURL(extracted.blob)
+      const displayBlob = popup && needsSpecialDecoder(image.format)
+        ? await createBrowserPreview(extracted.blob, image.format)
+        : extracted.blob
+      const url = URL.createObjectURL(displayBlob)
       if (popup) popup.location.href = url
       else downloadBlob(extracted.blob, image.name)
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
@@ -323,7 +356,7 @@ function App() {
       <Header />
       <main id="main" className="main-content">
         <section className="intro" aria-labelledby="page-title">
-          <div><span className="eyebrow">Visuelle Duplikatprüfung</span><h1 id="page-title">Doppelte Baustellenfotos erkennen – ohne dass sie den Rechner verlassen.</h1><p>Wählen Sie eine ZIP-Datei aus. Die Anwendung berechnet lokale Bildfingerabdrücke, vergleicht nur aussichtsreiche Kandidaten und legt mögliche Duplikate zur manuellen Prüfung vor.</p></div>
+          <div><span className="eyebrow">Lokale Duplikatprüfung</span><h1 id="page-title">Doppelte Baustellenfotos erkennen – ohne dass sie den Rechner verlassen.</h1><p>Wählen Sie eine ZIP-Datei aus. Die Anwendung vergleicht Bildfingerabdrücke und zeigt getrennt dazu hilfreichen EXIF-Kontext wie Aufnahmezeit, GPS-Abstand und Kameramodell an.</p></div>
           <div className="intro-note"><strong>Für einen prüfbaren Arbeitsablauf</strong>Keine Bilder werden automatisch gelöscht. Jede Entscheidung bleibt bei Ihnen und kann als Bericht exportiert werden.</div>
         </section>
         <PrivacyNotice />
@@ -371,7 +404,7 @@ function App() {
           </section>
         )}
       </main>
-      <footer className="site-footer"><div><span>Bildabgleich Lokal · Version {__APP_VERSION__}</span><span><ShieldCheck size={15} aria-hidden="true" /> Nur lokale Verarbeitung</span><span>Build {new Intl.DateTimeFormat('de-DE').format(new Date(__BUILD_DATE__))}</span></div></footer>
+      <footer className="site-footer"><div><span>Bildabgleich Lokal · Version {__APP_VERSION__}</span><span><ShieldCheck size={15} aria-hidden="true" /> Nur lokale Verarbeitung</span><a href="./THIRD_PARTY_NOTICES.txt" target="_blank" rel="noreferrer">Drittanbieter-Lizenzen</a><span>Build {new Intl.DateTimeFormat('de-DE').format(new Date(__BUILD_DATE__))}</span></div></footer>
       {comparison && <ComparisonDialog reference={comparison.reference} candidate={comparison.candidate} {...(comparison.edge ? { edge: comparison.edge } : {})} onClose={() => setComparison(undefined)} />}
     </div>
   )

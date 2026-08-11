@@ -190,7 +190,7 @@ async function extractAndValidateImage(
       { path: imageInfo.path },
     )
   }
-  const header = await blob.slice(0, 16).arrayBuffer()
+  const header = await blob.slice(0, 256).arrayBuffer()
   if (isZipMagic(header)) {
     throw new ZipValidationError(
       'nested-zip',
@@ -202,7 +202,7 @@ async function extractAndValidateImage(
   if (detectedFormat === undefined) {
     throw new ZipValidationError(
       'format-mismatch',
-      `„${imageInfo.path}“ besitzt keine gültige JPEG-, PNG- oder WebP-Signatur und wird übersprungen.`,
+      `„${imageInfo.path}“ besitzt keine gültige Signatur eines unterstützten Bildformats und wird übersprungen.`,
       { path: imageInfo.path },
     )
   }
@@ -306,7 +306,12 @@ async function closeReader(reader: ZipReader<Blob>): Promise<void> {
 function formatLabel(format: SupportedImageFormat): string {
   if (format === 'jpeg') return 'JPEG'
   if (format === 'png') return 'PNG'
-  return 'WebP'
+  if (format === 'webp') return 'WebP'
+  if (format === 'heic') return 'HEIC/HEIF'
+  if (format === 'avif') return 'AVIF'
+  if (format === 'gif') return 'GIF'
+  if (format === 'bmp') return 'BMP'
+  return 'TIFF'
 }
 
 export type { Entry }

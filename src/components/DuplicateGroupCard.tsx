@@ -1,6 +1,6 @@
 import { Check, CheckCheck, GitCompareArrows, Maximize2, MoreHorizontal, Star, Trash2, X } from 'lucide-react'
 import type { CandidateEdge, Decision, DuplicateGroup, ImageFeatureRecord } from '../core/types'
-import { formatBytes } from '../utils/format'
+import { formatBytes, formatDistanceMeters, formatDuration } from '../utils/format'
 import { Thumbnail } from './Thumbnail'
 
 interface DuplicateGroupCardProps {
@@ -72,14 +72,18 @@ export function DuplicateGroupCard({ group, images, edges, onDecision, onReferen
                 <div className="candidate-title"><strong title={candidate.path}>{candidate.name}</strong>{uncertain.has(candidate.id) && <span className="status warning">Unsichere Verbindung</span>}</div>
                 <small>{candidate.path}</small>
                 <span>{candidate.width} × {candidate.height} · {formatBytes(candidate.size)}</span>
-                {edge && <div className="similarity-line"><strong>{Math.round(score)} %</strong><span>{CATEGORY_LABEL[edge.category]}{!directEdge && uncertain.has(candidate.id) ? ' · beste Gruppenverbindung' : ''}</span></div>}
+                {edge && <div className="similarity-line"><strong>Bild {Math.round(score)} %</strong><span>{CATEGORY_LABEL[edge.category]}{!directEdge && uncertain.has(candidate.id) ? ' · beste Gruppenverbindung' : ''}</span></div>}
                 <div className="metric-strip" aria-label="Technische Einzelwerte">
                   <span>pHash {edge?.metrics.pHashDistance ?? '–'}</span>
                   <span>dHash {edge?.metrics.dHashDistance ?? '–'}</span>
                   <span>SSIM {edge?.metrics.ssim?.toFixed(2) ?? '–'}</span>
                   <span>Farbe {edge?.metrics.histogramSimilarity ? `${Math.round(edge.metrics.histogramSimilarity * 100)} %` : '–'}</span>
+                  {edge?.metadata?.gpsDistanceMeters !== undefined && <span>GPS {formatDistanceMeters(edge.metadata.gpsDistanceMeters)}</span>}
+                  {edge?.metadata?.captureTimeDifferenceSeconds !== undefined && <span>Zeit {formatDuration(edge.metadata.captureTimeDifferenceSeconds * 1_000)}</span>}
+                  {edge?.metadata?.sameCameraModel !== undefined && <span>Kamera {edge.metadata.sameCameraModel ? 'gleich' : 'verschieden'}</span>}
                 </div>
                 {edge && <details className="match-reasons"><summary>Warum dieser Treffer?</summary><ul>{edge.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></details>}
+                {edge?.metadata && edge.metadata.status !== 'unavailable' && <details className="match-reasons metadata-reasons"><summary>EXIF-Kontext: {metadataStatusLabel(edge.metadata.status)}</summary><ul>{edge.metadata.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></details>}
               </div>
               <div className="candidate-actions">
                 <div className="decision-group" aria-label={`Entscheidung für ${candidate.name}`}>
@@ -104,4 +108,11 @@ export function DuplicateGroupCard({ group, images, edges, onDecision, onReferen
       </footer>
     </article>
   )
+}
+
+function metadataStatusLabel(status: NonNullable<CandidateEdge['metadata']>['status']): string {
+  if (status === 'corroborates') return 'stützend'
+  if (status === 'conflicts') return 'abweichend'
+  if (status === 'neutral') return 'Hinweis'
+  return 'nicht verfügbar'
 }

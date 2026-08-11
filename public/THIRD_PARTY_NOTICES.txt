@@ -1,0 +1,20 @@
+Bildabgleich Lokal 1.1 - Drittanbieterhinweise
+
+heic-to 1.5.2
+Zweck: lokale HEIC/HEIF-Dekodierung (separater, nur bei Bedarf geladener Chunk)
+Lizenz: GNU Lesser General Public License v3.0 oder später (LGPL-3.0-or-later)
+Quellcode: https://github.com/hoppergee/heic-to/tree/v1.5.2
+Lizenztext: https://www.gnu.org/licenses/lgpl-3.0.html
+
+exifr 7.1.3
+Zweck: lokales Lesen von EXIF- und GPS-Metadaten
+Lizenz: MIT
+Quellcode: https://github.com/MikeKovarik/exifr
+
+utif2 4.1.0
+Zweck: lokale TIFF-Dekodierung
+Lizenz: MIT
+Quellcode: https://github.com/photopea/UTIF.js
+
+Weitere Laufzeit- und Entwicklungslizenzen sind in LICENSES.md im
+Quellrepository dokumentiert. Maßgeblich sind die Lizenztexte der Pakete.

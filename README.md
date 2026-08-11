@@ -1,26 +1,29 @@
-# Bildabgleich Lokal
+# Bildabgleich Lokal 1.1
 
-Bildabgleich Lokal ist eine statische Webanwendung zur Sichtung doppelter und visuell ähnlicher Baustellenfotos. Eine ZIP-Datei wird direkt im Browser geöffnet, in kleinen Arbeitsschritten analysiert und als überprüfbare Ergebnisgruppen dargestellt. Die Anwendung löscht und verändert keine Originaldateien.
+Bildabgleich Lokal 1.1 ist eine statische Webanwendung zur Sichtung doppelter und visuell ähnlicher Baustellenfotos. Eine ZIP-Datei wird direkt im Browser geöffnet, in kleinen Arbeitsschritten analysiert und als überprüfbare Ergebnisgruppen dargestellt. Neben dem Bildinhalt kann die Anwendung lokal vorhandene Aufnahmeinformationen als zusätzlichen Prüfkontext anzeigen. Sie löscht und verändert keine Originaldateien.
 
 Der erste Anwendungsfall sind Fotolieferungen aus dem Glasfaserausbau, die als Grundlage einer Budget- oder Leistungsprüfung dienen. Die Anwendung unterstützt dabei ausschließlich den nachvollziehbaren Bildabgleich. Sie berechnet keine Budgets oder Baumengen und trifft keine finanzielle Entscheidung automatisch.
 
-> **Datenschutz-Kernaussage:** Alle Bilder werden ausschließlich lokal in diesem Browser verarbeitet. Es werden keine Bilder hochgeladen oder an einen Server übertragen.
+> **Datenschutz-Kernaussage:** Alle Bilder und aus ihnen gelesenen Metadaten werden ausschließlich lokal in diesem Browser verarbeitet. Es werden keine Bilder, GPS-Koordinaten oder sonstigen Aufnahmeinformationen an einen Server übertragen.
 
 Die Anwendung ist für aktuelle Versionen von Microsoft Edge und Google Chrome unter Windows sowie für einen Einsatz ohne lokale Installation gedacht. Nach der Bereitstellung auf GitHub Pages reicht ein normaler Browser. Der Quellcode ist eine produktionsnahe erste Version, aber kein forensisches Beweismittel und kein Ersatz für die manuelle Freigabe.
 
 ## Was die Anwendung leistet
 
-- ZIP-Dateien mit JPEG-, PNG- und WebP-Bildern lokal einlesen
+- ZIP-Dateien mit JPEG, PNG, WebP, HEIC/HEIF, AVIF, GIF, BMP und TIFF lokal einlesen
+- bei animierten oder mehrseitigen Bilddateien ausschließlich das erste Bild beziehungsweise den ersten Frame analysieren
 - normale Duplikate sowie Varianten mit anderer Kompression, Auflösung oder leichter Helligkeitsänderung finden
 - in einem sensitiveren Modus auch schwierigere Zuschnitte und kleine geometrische Änderungen als Kandidaten vorschlagen
 - Bilder über aHash, dHash, DCT-basierten pHash, Farbinformationen und Strukturmerkmale vergleichen
 - kostengünstige Kandidatensuche von den genaueren Bildvergleichen trennen
 - mögliche Duplikate gruppieren und technische Gründe transparent anzeigen
+- lokal vorhandene EXIF-Daten wie GPS-Position, Aufnahmezeit sowie Kamera- und Objektivmodell als getrennten Kontext vergleichen
+- Metadaten ausschließlich zur Einordnung visueller Treffer verwenden; sie erzeugen niemals allein Kandidaten oder Duplikatgruppen
 - Entscheidungen wie „Duplikat“, „kein Duplikat“ oder „später prüfen“ lokal festhalten
 - Ergebnisse als Excel-kompatiblen CSV- und als JSON-Bericht herunterladen
 - Analyse pausieren oder abbrechen, ohne Dateien zu verändern
 - Vorschaubilder und Merkmale nur nach ausdrücklicher Cache-Aktivierung in IndexedDB speichern
-- ohne Backend, Analytics, Telemetrie, Cookies, CDN-Skripte oder externe KI-API laufen
+- ohne Backend, Analytics, Telemetrie, Cookies, CDN-Skripte, externe KI-API, Karten- oder Geocoding-Dienst laufen
 
 ## Wichtige Grenzen vor dem ersten Einsatz
 
@@ -35,6 +38,8 @@ Die Anwendung löscht deshalb nie automatisch. Prüfen Sie jede vorgeschlagene G
 - Die ausgewählte ZIP-Datei und ihre Dateinamen werden nur über die Browser-Dateiauswahl geöffnet.
 - ZIP-Einträge werden im Tab gelesen; Bilder werden nicht auf ein Server-Dateisystem extrahiert.
 - Dekodierung, Fingerabdrücke, Histogramme, Strukturvergleich, Gruppierung und manuelle Entscheidungen laufen im Browser.
+- EXIF-, GPS-, Zeit-, Kamera- und Objektivinformationen werden ausschließlich lokal aus den Bilddateien gelesen und verglichen.
+- Die Anwendung ruft weder externe Karten noch Reverse-Geocoding- oder sonstige Standortdienste auf.
 - Berichte werden als lokale `Blob`-Downloads erzeugt.
 - Es gibt im Anwendungscode keinen Uploadpfad für Bilddaten und keine Trackingbibliothek.
 - Vollständige Originalbilder werden nicht dauerhaft in IndexedDB gespeichert.
@@ -60,7 +65,7 @@ Primär getestet und vorgesehen sind:
 - Microsoft Edge, aktuelle stabile Version unter Windows
 - Google Chrome, aktuelle stabile Version unter Windows
 
-Firefox oder Safari können funktionieren, sind für den betrieblichen Pilotbetrieb aber nicht qualifiziert. JavaScript muss aktiviert sein. Die Grundanalyse benötigt Web Worker, Browser-Bilddekodierung und ausreichend Arbeitsspeicher. IndexedDB wird nur für den optionalen Cache gebraucht. OffscreenCanvas, WebAssembly, WebGL und WebGPU sind Beschleunigungs- beziehungsweise Erweiterungsmerkmale; fehlendes WebGPU verhindert die klassische Analyse nicht.
+Firefox oder Safari können funktionieren, sind für den betrieblichen Pilotbetrieb aber nicht qualifiziert. JavaScript muss aktiviert sein. Die Grundanalyse benötigt Web Worker, Browser-Bilddekodierung und ausreichend Arbeitsspeicher. IndexedDB wird nur für den optionalen Cache gebraucht. Der HEIC/HEIF-Decoder wird als lokales WebAssembly-/Emscripten-Decodermodul erst bei Bedarf lazy geladen; beim Start und bei Archiven ohne HEIC/HEIF entsteht dafür keine Decoderarbeit. OffscreenCanvas, WebGL und WebGPU sind weitere Beschleunigungs- beziehungsweise Erweiterungsmerkmale; fehlendes WebGPU verhindert die klassische Analyse nicht.
 
 Die Startseite führt eine Systemprüfung aus und zeigt verständliche Fallback-Hinweise. Firmenfilter können GitHub Pages, Worker, IndexedDB, Downloads oder einzelne Browser-APIs blockieren.
 
@@ -82,14 +87,15 @@ Die Laufzeit hängt stark von Bildanzahl, Auflösung, Kompression, Prozessor, ve
 Die Pipeline vermeidet teure Vollbildvergleiche aller Paare. Bei 3.000 Bildern gäbe es ungefähr 4,5 Millionen Paare; kleine Hashwerte lassen sich günstig vergleichen, genaue Strukturprüfungen werden dagegen auf plausible Kandidaten begrenzt.
 
 1. **ZIP-Prüfung:** Anzahl, Pfade, Dateigrößen, Kompressionsverhältnisse und Formate werden validiert. Ordner, Systemdateien und nicht unterstützte Einträge werden übersprungen.
-2. **Dekodierung:** Unterstützte Bilder werden einzeln oder in kleinen Batches dekodiert und gemäß der vom Browser erkannten Bildorientierung normalisiert.
-3. **Verkleinerung:** Es entstehen kleine Analysebilder, Graustufendaten und Vorschaubilder. Vollständige Originale werden nicht gesammelt im DOM gehalten.
-4. **Visuelle Fingerabdrücke:** aHash erfasst grobe Helligkeitsflächen, dHash Kantenänderungen und pHash niederfrequente DCT-Strukturen. Eine Hamming-Distanz vergleicht die 64-Bit-Fingerabdrücke.
-5. **Kandidatenauswahl:** Hashabstände, Seitenverhältnis, Auflösung, Helligkeit und Farbinformationen begrenzen die Zahl genauer zu prüfender Paare.
-6. **Genauer Vergleich:** Für Kandidaten werden normalisierte Histogramm- und SSIM-ähnliche Strukturwerte kombiniert. Das geschieht nur auf kleinen Analysebildern.
-7. **Bewertung:** Ein transparentes Regelwerk erzeugt Kategorie, Konfidenz, technischen Ähnlichkeitswert und Begründungen. Der Prozentwert ist keine objektive Identitätswahrscheinlichkeit.
-8. **Gruppierung:** Starke Verbindungen bilden Kerngruppen. Schwache Ketten werden nicht ungeprüft als sichere Gesamtgruppe behandelt.
-9. **Manuelle Prüfung und Export:** Die endgültige fachliche Entscheidung bleibt beim Nutzer.
+2. **Dekodierung:** JPEG, PNG, WebP, AVIF, GIF und BMP nutzen nach Möglichkeit die lokale Browserdekodierung. HEIC/HEIF lädt seinen lokal gebündelten Decoder erst beim ersten entsprechenden Bild nach; TIFF wird lokal über `utif2` dekodiert. Bei Animationen, HEIC-Sequenzen und mehrseitigen TIFF-Dateien wird nur das erste Bild beziehungsweise der erste Frame analysiert.
+3. **Lokaler Aufnahmekontext:** Soweit vorhanden, werden EXIF-GPS, Aufnahmezeit, Kamerahersteller, Kameramodell, Objektiv, Software und Orientierung ausgelesen. GPS-Abstände werden lokal berechnet; es gibt keine Karten- oder Geocoding-Anfrage.
+4. **Verkleinerung:** Es entstehen kleine Analysebilder, Graustufendaten und Vorschaubilder. Vollständige Originale werden nicht gesammelt im DOM gehalten.
+5. **Visuelle Fingerabdrücke:** aHash erfasst grobe Helligkeitsflächen, dHash Kantenänderungen und pHash niederfrequente DCT-Strukturen. Eine Hamming-Distanz vergleicht die 64-Bit-Fingerabdrücke.
+6. **Kandidatenauswahl:** Hashabstände, Seitenverhältnis, Auflösung, Helligkeit und Farbinformationen begrenzen die Zahl genauer zu prüfender Paare.
+7. **Genauer Vergleich:** Für Kandidaten werden normalisierte Histogramm- und SSIM-ähnliche Strukturwerte kombiniert. Das geschieht nur auf kleinen Analysebildern.
+8. **Bewertung:** Ein transparentes Regelwerk erzeugt Kategorie, Konfidenz, technischen Ähnlichkeitswert und Begründungen. Metadaten werden daneben als stützender, neutraler, abweichender oder nicht verfügbarer Kontext ausgewiesen. Sie verändern die visuelle Bewertung nicht und können niemals allein einen Kandidaten oder eine Duplikatgruppe erzeugen. Der Prozentwert ist keine objektive Identitätswahrscheinlichkeit.
+9. **Gruppierung:** Starke visuelle Verbindungen bilden Kerngruppen. Schwache Ketten werden nicht ungeprüft als sichere Gesamtgruppe behandelt.
+10. **Manuelle Prüfung und Export:** Die endgültige fachliche Entscheidung bleibt beim Nutzer.
 
 Der Modus „Sensitiv“ erweitert den Kandidatenraum, kann aber keine robuste lokale Merkmals- und Homographieanalyse wie ORB/RANSAC vollständig ersetzen. Leichte Zuschnitte und Drehungen sind daher Best-Effort-Fälle und müssen besonders sorgfältig kontrolliert werden.
 
@@ -99,7 +105,9 @@ Der Modus „Sensitiv“ erweitert den Kandidatenraum, kann aber keine robuste l
 Statische Vite-Seite von GitHub Pages
 └─ React-Oberfläche und Zustandssteuerung
    ├─ ZIP-Prüfung und speicherschonendes Lesen (@zip.js/zip.js)
-   ├─ Browser-Bilddekodierung und kleine Analyse-/Vorschaubilder
+   ├─ Browser-Bilddekodierung sowie lazy HEIC- und lokaler TIFF-Decoder
+   ├─ lokale EXIF-/GPS-/Zeit-/Kamera-Kontextprüfung (exifr)
+   ├─ kleine Analyse- und Vorschaubilder; bei Sequenzen nur erster Frame
    ├─ Worker-Pool für Bildmerkmale und Hash-Kandidaten
    ├─ Ähnlichkeitsbewertung und geschützte Graph-Gruppierung
    ├─ manuelle Prüfung und lokale Blob-Exporte
@@ -129,7 +137,7 @@ Alle zentralen Werte stehen in `src/core/config/limits.ts`:
 
 Diese Werte sind auf normale Baustellenfotos ausgerichtete Schutzgrenzen, keine Zusage, dass jedes Archiv knapp unterhalb der Grenzen verarbeitet werden kann. Ein 20-GiB-Archiv wird nicht komplett in den Arbeitsspeicher geladen; Dekodierung großer Einzelbilder kann trotzdem kurzzeitig viel RAM benötigen. Browser, Betriebssystem oder Firmenrichtlinien können niedrigere praktische Grenzen setzen.
 
-Zusätzliche Prüfungen behandeln unsichere `../`-Pfade, doppelte Pfade, verschachtelte ZIP-Dateien, verschlüsselte oder beschädigte Einträge, widersprüchliche Dateiendungen und Bildsignaturen sowie macOS- und versteckte Systemdateien. Fehler einzelner Bilder sollen die übrige Analyse nicht abbrechen.
+Zusätzliche Prüfungen behandeln unsichere `../`-Pfade, doppelte Pfade, verschachtelte ZIP-Dateien, verschlüsselte oder beschädigte Einträge, widersprüchliche Dateiendungen und Bildsignaturen sowie macOS- und versteckte Systemdateien. Das gilt auch für die neu unterstützten HEIC/HEIF-, AVIF-, GIF-, BMP- und TIFF-Signaturen. Fehler einzelner Bilder oder Metadaten sollen die übrige Analyse nicht abbrechen.
 
 ## Empfindlichkeit und Pilotkalibrierung
 
@@ -277,7 +285,9 @@ Ebenso wäre OpenCV/ORB nur als lokales, optional geladenes Asset zulässig. Ohn
 
 ## Bekannte Einschränkungen
 
-- Unterstützt werden JPEG, PNG und WebP. HEIC/HEIF, TIFF, RAW, AVIF und animierte GIFs sind nicht Teil des zugesicherten Formatsatzes.
+- Unterstützt werden JPEG, PNG, WebP, HEIC/HEIF, AVIF, GIF, BMP und TIFF. Kamera-RAW, JPEG XL, SVG und andere Formate sind nicht Teil des zugesicherten Formatsatzes.
+- Bei animierten GIF-/AVIF-Dateien, HEIC-Sequenzen und mehrseitigen TIFF-Dateien wird nur das erste Bild beziehungsweise der erste Frame verglichen.
+- EXIF- und GPS-Daten können fehlen, ungenau, falsch oder durch Bearbeitung entfernt worden sein. Standort-, Zeit- und Kameradaten sind deshalb nur Kontext und kein alleiniger Duplikatnachweis.
 - Verschlüsselte ZIP-Dateien und verschachtelte ZIP-Archive werden nicht analysiert.
 - Beschädigte Bilder werden übersprungen und gemeldet; eine Reparatur findet nicht statt.
 - Browserdekodierung und EXIF-Orientierungsunterstützung unterscheiden sich in Randfällen zwischen Browserständen.
@@ -320,9 +330,9 @@ Installieren Sie eine unterstützte Node.js-Version und aktivieren Sie Corepack.
 
 ## Verwendete Bibliotheken und Lizenzen
 
-Zur Laufzeit werden insbesondere React, React DOM, `@zip.js/zip.js`, `idb`, TanStack Virtual und Lucide React lokal mit dem Build gebündelt. Entwicklung und Tests verwenden unter anderem Vite, TypeScript, Vitest, Testing Library, Playwright, JSZip und PNGJS. Es werden keine Bibliotheken zur Laufzeit von einem CDN nachgeladen.
+Zur Laufzeit werden insbesondere React, React DOM, `@zip.js/zip.js`, `idb`, Lucide React, `exifr`, `utif2` und der lazy geladene HEIC/HEIF-Decoder `heic-to` lokal mit dem Build gebündelt. Entwicklung und Tests verwenden unter anderem Vite, TypeScript, Vitest, Testing Library, Playwright, JSZip und PNGJS. Es werden keine Bibliotheken zur Laufzeit von einem CDN nachgeladen.
 
-Eine kompakte Lizenzübersicht steht in [LICENSES.md](./LICENSES.md). Die jeweiligen Paket-Lizenzdateien in `node_modules` beziehungsweise die Upstream-Repositories sind maßgeblich. Für ein formales Firmen-Freigabeverfahren sollte zusätzlich ein automatisierter Software-Bill-of-Materials- und Lizenzscan des konkreten Lockfiles erfolgen.
+Eine kompakte Lizenzübersicht steht in [LICENSES.md](./LICENSES.md). `heic-to@1.5.2` und der darin enthaltene HEIC/HEIF-Decoder stehen unter LGPL-3.0; `exifr` und `utif2` stehen unter MIT. Die jeweiligen Paket-Lizenzdateien in `node_modules` beziehungsweise die Upstream-Repositories sind maßgeblich. Gerade vor einem Firmeneinsatz müssen Lizenzpflichten und mögliche weitere rechtliche Anforderungen durch die zuständige Stelle geprüft werden. Für ein formales Freigabeverfahren sollte zusätzlich ein automatisierter Software-Bill-of-Materials- und Lizenzscan des konkreten Lockfiles erfolgen.
 
 ## Verantwortungsvolle Nutzung
 

@@ -4,7 +4,12 @@ import { createCleanedFileRows } from './cleaned-list'
 import { createCsvReport, escapeCsvCell, formatCsv } from './csv'
 import { createJsonReportData } from './json'
 
-function image(id: string, path: string, decision: ImageFeatureRecord['decision']): ImageFeatureRecord {
+function image(
+  id: string,
+  path: string,
+  decision: ImageFeatureRecord['decision'],
+  metadata?: ImageFeatureRecord['metadata'],
+): ImageFeatureRecord {
   return {
     id,
     path,
@@ -21,6 +26,7 @@ function image(id: string, path: string, decision: ImageFeatureRecord['decision'
     pHash: '00',
     histogram: [1],
     luminanceMean: 128,
+    ...(metadata ? { metadata } : {}),
     gray: Uint8Array.from([128]),
     thumbnailKey: id,
     decision,
@@ -54,8 +60,28 @@ function resultFixture(): AnalysisResult {
       warnings: [],
     },
     images: [
-      image('ref', 'Ordner/Referenz.jpg', 'unreviewed'),
-      image('dup', '=HYPERLINK("bad")', 'duplicate'),
+      image('ref', 'Ordner/Referenz.jpg', 'unreviewed', {
+        latitude: 52.52,
+        longitude: 13.405,
+        capturedAt: '2026-08-06T09:59:58.000Z',
+        captureTimeHasTimezone: true,
+        cameraMake: 'Acme',
+        cameraModel: 'BauCam 1',
+        lensModel: 'Weitwinkel',
+        archiveModifiedAt: '2026-08-06T10:01:00.000Z',
+        warnings: [],
+      }),
+      image('dup', '=HYPERLINK("bad")', 'duplicate', {
+        latitude: 52.5201,
+        longitude: 13.4051,
+        capturedAt: '2026-08-06T10:00:00.000Z',
+        captureTimeHasTimezone: true,
+        cameraMake: 'Acme',
+        cameraModel: 'BauCam 1',
+        lensModel: 'Weitwinkel',
+        archiveModifiedAt: '2026-08-06T10:02:00.000Z',
+        warnings: [],
+      }),
       image('later', 'Ordner/Später.jpg', 'later'),
       image('single', 'Andere/Einzel.jpg', 'unreviewed'),
     ],
@@ -69,6 +95,14 @@ function resultFixture(): AnalysisResult {
       category: 'almost-certain-duplicate',
       reasons: ['sehr ähnlich'],
       metrics: { pHashDistance: 1, dHashDistance: 2, ssim: 0.98, histogramSimilarity: 0.9 },
+      metadata: {
+        status: 'corroborates',
+        contextScore: 98,
+        gpsDistanceMeters: 13.1,
+        captureTimeDifferenceSeconds: 2,
+        sameCameraModel: true,
+        reasons: ['GPS und Aufnahmezeit stimmen überein.'],
+      },
     }],
     groups: [{
       id: 'gruppe-1',
@@ -88,6 +122,23 @@ describe('CSV-Export', () => {
     expect(createCsvReport(resultFixture()).startsWith('\ufeff')).toBe(true)
   })
 
+  it('exportiert Metadatenkontext, aber standardmäßig keine exakten GPS-Koordinaten', () => {
+    const csv = createCsvReport(resultFixture())
+    expect(csv).toContain('GPS-Abstand (m)')
+    expect(csv).toContain('Referenz-GPS vorhanden')
+    expect(csv).toContain('Stützt den visuellen Treffer')
+    expect(csv).not.toContain('Referenz-Breitengrad')
+    expect(csv).not.toContain('52.52')
+    expect(csv).not.toContain('13.405')
+  })
+
+  it('nimmt exakte GPS-Koordinaten nur nach ausdrücklicher Option in den CSV-Bericht auf', () => {
+    const csv = createCsvReport(resultFixture(), { includeExactGps: true })
+    expect(csv).toContain('Referenz-Breitengrad')
+    expect(csv).toContain('52.52')
+    expect(csv).toContain('13.405')
+  })
+
   it.each(['=1+1', '+cmd', '-2+3', '@SUM(A1)', '  =HYPERLINK("x")', '\t=cmd']) (
     'neutralisiert mögliche Tabellenformel %j',
     (value) => expect(escapeCsvCell(value)).toContain("'"),
@@ -101,8 +152,11 @@ describe('CSV-Export', () => {
 describe('JSON- und bereinigter Listenexport', () => {
   it('exportiert Metadaten und Metriken, aber keine Analysepixel', () => {
     const report = createJsonReportData(resultFixture(), '2026-08-06T12:00:00.000Z')
-    expect(report.exportVersion).toBe(1)
+    expect(report.exportVersion).toBe(2)
+    expect(report.metadataNotice).toMatch(/genaue GPS-Koordinaten/)
     expect(report.edges[0]?.metrics.ssim).toBe(0.98)
+    expect(report.edges[0]?.metadata?.gpsDistanceMeters).toBe(13.1)
+    expect(report.images[0]?.metadata?.latitude).toBe(52.52)
     expect(report.images[0]).not.toHaveProperty('gray')
   })
 

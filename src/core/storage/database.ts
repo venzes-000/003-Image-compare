@@ -443,7 +443,7 @@ async function validateThumbnail(blob: Blob): Promise<void> {
   }
   const header = await blob.slice(0, 16).arrayBuffer()
   if (detectImageFormat(header) === undefined) {
-    throw new AnalysisStorageError('invalid-data', 'Das Vorschaubild besitzt kein unterstütztes JPEG-, PNG- oder WebP-Format.')
+    throw new AnalysisStorageError('invalid-data', 'Das Vorschaubild besitzt kein unterstütztes Bildformat.')
   }
 }
 

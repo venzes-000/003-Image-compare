@@ -89,6 +89,7 @@ export class AnalysisEngine {
             compressedSize: image.compressedSize,
             mime: image.mime,
             format: image.format,
+            ...(image.lastModified ? { archiveModifiedAt: image.lastModified.toISOString() } : {}),
           },
           buffer,
         })
