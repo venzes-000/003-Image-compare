@@ -47,6 +47,16 @@ export interface ZipSummary {
   warnings: string[]
 }
 
+export type QuarterTurn = 0 | 90 | 180 | 270
+
+export interface RotatedHashVariant {
+  rotationDegrees: QuarterTurn
+  aspectRatio: number
+  aHash: string
+  dHash: string
+  pHash: string
+}
+
 export interface ImageFeatureRecord {
   id: string
   path: string
@@ -61,6 +71,12 @@ export interface ImageFeatureRecord {
   aHash: string
   dHash: string
   pHash: string
+  /**
+   * Hashes of the already-downscaled analysis image at all quarter turns.
+   * This keeps orientation matching cheap and avoids decoding the original
+   * image four times. Optional for backwards-compatible cached analyses.
+   */
+  rotationVariants?: RotatedHashVariant[]
   histogram: number[]
   luminanceMean: number
   metadata?: CaptureMetadata
@@ -103,6 +119,8 @@ export interface SimilarityMetrics {
   aiSimilarity?: number
   aspectRatioDifference?: number
   resolutionRatio?: number
+  /** Clockwise rotation applied to the target analysis image before comparison. */
+  alignmentRotationDegrees?: QuarterTurn
 }
 
 export type SimilarityCategory =
@@ -143,6 +161,23 @@ export interface AnalysisProgress {
   total: number
   candidates: number
   startedAt?: number
+  phaseStartedAt?: number
+  timings?: Partial<Record<AnalysisPhase, number>>
+  /** Summed worker CPU timings; decode and metadata can overlap and must not be added together as wall time. */
+  imageTimings?: {
+    images: number
+    metadataMs: number
+    decodeMs: number
+    analysisMs: number
+    thumbnailMs: number
+    totalMs: number
+  }
+  execution?: {
+    mode: 'worker-pool' | 'main-thread'
+    workerCount: number
+    fallbackReason?: string
+  }
+  warning?: string
   message: string
 }
 
@@ -179,6 +214,8 @@ export interface AnalysisResult {
   images: ImageFeatureRecord[]
   edges: CandidateEdge[]
   groups: DuplicateGroup[]
+  /** User decisions keyed by the concrete comparison edge, independent from file deletion decisions. */
+  comparisonDecisions?: Record<string, Decision>
   errors: AppError[]
 }
 

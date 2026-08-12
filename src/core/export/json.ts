@@ -1,4 +1,13 @@
-import type { AnalysisResult, ImageFeatureRecord } from '../types'
+import type { AnalysisResult, Decision, ImageFeatureRecord } from '../types'
+import {
+  effectiveCandidateRotationDegrees,
+  groupCandidateIds,
+  resolveComparisonDecision,
+  resolveGroupComparison,
+  type GroupCandidateKind,
+  type ResultPresentationTier,
+} from '../clustering'
+import type { QuarterTurn } from '../types'
 
 export interface JsonReportOptions {
   pretty?: boolean
@@ -9,10 +18,24 @@ export interface ExportedImageRecord extends Omit<ImageFeatureRecord, 'gray'> {}
 
 export interface JsonAnalysisReport extends Omit<AnalysisResult, 'images'> {
   exportFormat: 'lokale-bildpruefung-json'
-  exportVersion: 2
+  exportVersion: 4
   exportedAt: string
   metadataNotice: string
   images: ExportedImageRecord[]
+  comparisons: ExportedGroupComparison[]
+}
+
+export interface ExportedGroupComparison {
+  groupId: string
+  groupReferenceId: string
+  comparisonBaseId: string
+  candidateId: string
+  edgeId?: string
+  directToReference: boolean
+  effectiveCandidateRotationDegrees: QuarterTurn
+  candidateKind: GroupCandidateKind
+  presentationTier: ResultPresentationTier
+  decision: Decision
 }
 
 export function createJsonReport(result: AnalysisResult, options: JsonReportOptions = {}): string {
@@ -21,10 +44,11 @@ export function createJsonReport(result: AnalysisResult, options: JsonReportOpti
 }
 
 export function createJsonReportData(result: AnalysisResult, exportedAt = new Date().toISOString()): JsonAnalysisReport {
+  const edgesById = new Map(result.edges.map((edge) => [edge.id, edge]))
   return {
     ...result,
     exportFormat: 'lokale-bildpruefung-json',
-    exportVersion: 2,
+    exportVersion: 4,
     exportedAt,
     metadataNotice: 'Dieser bewusst erzeugte JSON-Export kann EXIF-Aufnahmezeiten, Kameraangaben und genaue GPS-Koordinaten enthalten. Bitte entsprechend vertraulich behandeln.',
     summary: {
@@ -45,6 +69,25 @@ export function createJsonReportData(result: AnalysisResult, exportedAt = new Da
       memberIds: [...group.memberIds],
       uncertainIds: [...group.uncertainIds],
       edgeIds: [...group.edgeIds],
+    })),
+    comparisons: result.groups.flatMap((group) => groupCandidateIds(group).map((candidateId) => {
+      const resolved = resolveGroupComparison(group, candidateId, edgesById)
+      return {
+        groupId: group.id,
+        groupReferenceId: group.referenceId,
+        comparisonBaseId: resolved.baseImageId,
+        candidateId,
+        ...(resolved.edge ? { edgeId: resolved.edge.id } : {}),
+        directToReference: resolved.directToReference,
+        effectiveCandidateRotationDegrees: effectiveCandidateRotationDegrees(resolved.edge, candidateId),
+        candidateKind: resolved.candidateKind,
+        presentationTier: resolved.presentationTier,
+        decision: resolveComparisonDecision(
+          resolved,
+          result.comparisonDecisions,
+          result.images.find((image) => image.id === candidateId)?.decision,
+        ),
+      }
     })),
     errors: result.errors.map((error) => ({ ...error })),
   }

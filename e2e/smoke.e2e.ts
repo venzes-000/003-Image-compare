@@ -26,8 +26,16 @@ test('analysiert eine ZIP-Datei lokal und lädt einen CSV-Bericht herunter', asy
   if (await startButton.isVisible()) await startButton.click()
 
   await expect(
-    page.getByText(/Mögliche Duplikate|Duplikatgruppen|Ergebnisgruppe/i).first(),
+    page.getByText(/Duplikate und Prüfvorschläge|Starker Treffer|Prüfvorschlag/i).first(),
   ).toBeVisible({ timeout: 60_000 })
+  let visibleResultText = ''
+  for (const sectionName of [/Starke Treffer/i, /Manuell prüfen/i, /Niedrige Priorität/i]) {
+    const tab = page.getByRole('tab', { name: sectionName })
+    if (await tab.isVisible()) {
+      await tab.click()
+      visibleResultText += `\n${await page.locator('.duplicate-group').allInnerTexts()}`
+    }
+  }
   for (const expectedVariant of [
     'kopie-anderer-name.png',
     'skaliert-180x120.png',
@@ -36,7 +44,7 @@ test('analysiert eine ZIP-Datei lokal und lädt einen CSV-Bericht herunter', asy
     'leichter-zuschnitt.png',
     'leicht-gedreht.png',
   ]) {
-    await expect(page.getByText(expectedVariant, { exact: true }).first()).toBeVisible()
+    expect(visibleResultText).toContain(expectedVariant)
   }
 
   const csvButton = page.getByRole('button', { name: /CSV-Bericht|CSV (?:herunterladen|exportieren)|Als CSV exportieren/i })

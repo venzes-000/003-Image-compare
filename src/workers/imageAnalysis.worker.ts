@@ -23,9 +23,12 @@ self.onmessage = async (event: MessageEvent<ImageWorkerRequest>) => {
   const { taskId, image, buffer } = event.data.payload
   let bitmap: ImageBitmap | undefined
   try {
+    const totalStartedAt = performance.now()
     cancelled = false
     const blob = new Blob([buffer], { type: image.mime })
-    const metadata = await extractCaptureMetadata(buffer, image.archiveModifiedAt)
+    const metadataStartedAt = performance.now()
+    const metadataPromise = extractCaptureMetadata(buffer, image.archiveModifiedAt)
+    const decodeStartedAt = performance.now()
     let source: CanvasImageSource
     let width: number
     let height: number
@@ -53,18 +56,25 @@ self.onmessage = async (event: MessageEvent<ImageWorkerRequest>) => {
       width = bitmap.width
       height = bitmap.height
     }
+    const decodeMs = performance.now() - decodeStartedAt
+    const metadata = await metadataPromise
+    const metadataMs = performance.now() - metadataStartedAt
     if (cancelled) {
       bitmap?.close()
       return
     }
 
+    const analysisStartedAt = performance.now()
     const analysisSize = APP_LIMITS.analysisSize
     const analysisCanvas = new OffscreenCanvas(analysisSize, analysisSize)
     const analysisContext = analysisCanvas.getContext('2d', { willReadFrequently: true })
     if (!analysisContext) throw new Error('Der Analyse-Canvas konnte nicht initialisiert werden.')
     analysisContext.drawImage(source, 0, 0, analysisSize, analysisSize)
     const imageData = analysisContext.getImageData(0, 0, analysisSize, analysisSize)
+    const feature = createFeatureRecord(image, width, height, imageData, metadata)
+    const analysisMs = performance.now() - analysisStartedAt
 
+    const thumbnailStartedAt = performance.now()
     const maxEdge = APP_LIMITS.thumbnailMaxEdge
     const scale = Math.min(1, maxEdge / Math.max(width, height))
     const thumbnailWidth = Math.max(1, Math.round(width * scale))
@@ -75,12 +85,27 @@ self.onmessage = async (event: MessageEvent<ImageWorkerRequest>) => {
     thumbnailContext.drawImage(source, 0, 0, thumbnailWidth, thumbnailHeight)
     const thumbnailBlob = await thumbnailCanvas.convertToBlob({ type: 'image/webp', quality: 0.78 })
     const thumbnail = await thumbnailBlob.arrayBuffer()
-    const feature = createFeatureRecord(image, width, height, imageData, metadata)
+    const thumbnailMs = performance.now() - thumbnailStartedAt
     bitmap?.close()
     bitmap = undefined
 
     respond(
-      { type: 'IMAGE_ANALYZED', payload: { taskId, feature, thumbnail, thumbnailMime: thumbnailBlob.type } },
+      {
+        type: 'IMAGE_ANALYZED',
+        payload: {
+          taskId,
+          feature,
+          thumbnail,
+          thumbnailMime: thumbnailBlob.type,
+          timings: {
+            metadataMs,
+            decodeMs,
+            analysisMs,
+            thumbnailMs,
+            totalMs: performance.now() - totalStartedAt,
+          },
+        },
+      },
       [feature.gray.buffer, thumbnail],
     )
   } catch (error) {

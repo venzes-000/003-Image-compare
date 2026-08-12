@@ -13,7 +13,7 @@ export const APP_LIMITS = Object.freeze({
   hashInputSize: 32,
   thumbnailMaxEdge: 360,
   zipFingerprintChunkBytes: 64 * 1024,
-  databaseVersion: 2,
+  databaseVersion: 4,
 })
 
 export const MODE_DEFAULTS: Record<SensitivityMode, Omit<AnalysisSettings, 'mode' | 'workerCount'>> = {

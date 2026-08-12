@@ -12,19 +12,39 @@ interface WorkerSlot {
   task?: PendingTask
 }
 
+export interface ImageWorkerPoolOptions {
+  onRuntimeFallback?: (reason: string) => void
+}
+
+export class ImageWorkerPoolUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ImageWorkerPoolUnavailableError'
+  }
+}
+
 export class ImageWorkerPool {
   private readonly slots: WorkerSlot[] = []
   private readonly queue: PendingTask[] = []
   private paused = false
   private cancelled = false
   private readonly useWorkers: boolean
+  private readonly onRuntimeFallback?: (reason: string) => void
+  private runtimeFailureReported = false
+  private terminalWorkerFailure?: Error
+  readonly mode: 'worker-pool' | 'main-thread'
+  readonly fallbackReason?: string
   readonly capacity: number
 
-  constructor(workerCount: number) {
-    this.useWorkers =
-      typeof Worker !== 'undefined' &&
-      typeof OffscreenCanvas !== 'undefined' &&
-      typeof createImageBitmap !== 'undefined'
+  constructor(workerCount: number, options: ImageWorkerPoolOptions = {}) {
+    this.onRuntimeFallback = options.onRuntimeFallback
+    const unavailable: string[] = []
+    if (typeof Worker === 'undefined') unavailable.push('Web Worker fehlen')
+    if (typeof OffscreenCanvas === 'undefined') unavailable.push('OffscreenCanvas fehlt')
+    if (typeof createImageBitmap === 'undefined') unavailable.push('createImageBitmap fehlt')
+    this.useWorkers = unavailable.length === 0
+    this.mode = this.useWorkers ? 'worker-pool' : 'main-thread'
+    this.fallbackReason = unavailable.length > 0 ? unavailable.join(', ') : undefined
     this.capacity = this.useWorkers ? workerCount : 1
 
     if (!this.useWorkers) return
@@ -38,7 +58,22 @@ export class ImageWorkerPool {
       worker.onerror = (event) => {
         const task = slot.task
         slot.task = undefined
-        task?.reject(new Error(event.message || 'Ein Bildanalyse-Worker ist ausgefallen.'))
+        slot.worker.terminate()
+        const slotIndex = this.slots.indexOf(slot)
+        if (slotIndex >= 0) this.slots.splice(slotIndex, 1)
+        const message = event.message || 'Ein Bildanalyse-Worker ist beim Start oder während der Verarbeitung ausgefallen.'
+        if (!this.runtimeFailureReported) {
+          this.runtimeFailureReported = true
+          this.onRuntimeFallback?.(message)
+        }
+        if (this.slots.length === 0) {
+          const failure = new ImageWorkerPoolUnavailableError(`${message} Es ist kein Bildanalyse-Worker mehr verfügbar.`)
+          this.terminalWorkerFailure = failure
+          task?.reject(failure)
+          while (this.queue.length > 0) this.queue.shift()?.reject(failure)
+        } else {
+          task?.reject(new ImageWorkerPoolUnavailableError(`${message} Bitte prüfen Sie Browser-Energiesparmodus und Worker-Freigaben.`))
+        }
         this.dispatch()
       }
       this.slots.push(slot)
@@ -48,6 +83,7 @@ export class ImageWorkerPool {
   analyze(payload: AnalyzeImagePayload): Promise<ImageAnalyzedPayload> {
     if (this.cancelled) return Promise.reject(new DOMException('Analyse abgebrochen', 'AbortError'))
     if (!this.useWorkers) return analyzeImageOnMainThread(payload)
+    if (this.terminalWorkerFailure) return Promise.reject(this.terminalWorkerFailure)
 
     return new Promise((resolve, reject) => {
       this.queue.push({ payload, resolve, reject })
@@ -88,7 +124,14 @@ export class ImageWorkerPool {
       const task = this.queue.shift()
       if (!task) break
       slot.task = task
-      slot.worker.postMessage({ type: 'ANALYZE_IMAGE', payload: task.payload }, [task.payload.buffer])
+      try {
+        slot.worker.postMessage({ type: 'ANALYZE_IMAGE', payload: task.payload }, [task.payload.buffer])
+      } catch (error) {
+        slot.task = undefined
+        const message = error instanceof Error ? error.message : String(error)
+        task.reject(new ImageWorkerPoolUnavailableError(`Der Auftrag konnte nicht an den Bildanalyse-Worker übertragen werden: ${message}`))
+        queueMicrotask(() => this.dispatch())
+      }
     }
   }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { Blend, Columns2, Contrast, Minus, Move, Plus, X } from 'lucide-react'
+import { AlertTriangle, Blend, Columns2, Contrast, Minus, Move, Plus, X } from 'lucide-react'
 import type { CandidateEdge, ImageFeatureRecord } from '../core/types'
+import { effectiveCandidateRotationDegrees, rotatedImageFitScale } from '../core/clustering'
 import { useThumbnailUrl } from '../hooks/useThumbnailUrl'
 import { formatBytes, formatCoordinates, formatDistanceMeters, formatDuration } from '../utils/format'
 
@@ -48,9 +49,17 @@ export function ComparisonDialog({ reference, candidate, edge, onClose }: Compar
     setOffset({ x: origin.offsetX + event.clientX - origin.x, y: origin.offsetY + event.clientY - origin.y })
   }
 
+  const candidateRotation = effectiveCandidateRotationDegrees(edge, candidate.id)
   const transform = `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`
   const imageStyle = { transform }
-  const differentAspect = Math.abs(reference.aspectRatio - candidate.aspectRatio) / Math.max(reference.aspectRatio, candidate.aspectRatio) > 0.05
+  const overlayFitScale = mode === 'side'
+    ? 1
+    : rotatedImageFitScale(reference.aspectRatio, candidate.aspectRatio, candidateRotation)
+  const candidateImageStyle = { transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom * overlayFitScale}) rotate(${candidateRotation}deg)` }
+  const alignedCandidateAspect = candidateRotation === 90 || candidateRotation === 270
+    ? 1 / candidate.aspectRatio
+    : candidate.aspectRatio
+  const differentAspect = Math.abs(reference.aspectRatio - alignedCandidateAspect) / Math.max(reference.aspectRatio, alignedCandidateAspect) > 0.05
 
   return (
     <dialog ref={dialogRef} className="comparison-dialog" aria-labelledby="comparison-title">
@@ -69,21 +78,25 @@ export function ComparisonDialog({ reference, candidate, edge, onClose }: Compar
           <div className="zoom-control"><Move size={16} aria-hidden="true" /><button type="button" onClick={() => setZoom(Math.max(1, zoom - 0.25))} aria-label="Verkleinern"><Minus size={16} /></button><output>{Math.round(zoom * 100)} %</output><button type="button" onClick={() => setZoom(Math.min(4, zoom + 0.25))} aria-label="Vergrößern"><Plus size={16} /></button><button type="button" onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }) }}>Zurücksetzen</button></div>
         </div>
         {differentAspect && <p className="comparison-warning">Die Bilder haben unterschiedliche Seitenverhältnisse. Das kann auf einen Zuschnitt hindeuten.</p>}
+        {candidateRotation !== 0 && <p className="comparison-warning metadata">Für den visuellen Vergleich wird der Kandidat um {candidateRotation}° gedreht ausgerichtet.</p>}
+        {edge?.metadata?.status === 'conflicts' && <p className="comparison-warning metadata"><AlertTriangle size={16} aria-hidden="true" /> Die vorhandenen Metadaten widersprechen diesem visuellen Treffer. Bitte einzeln prüfen.</p>}
         <div className={`comparison-stage mode-${mode}`} onPointerDown={startDrag} onPointerMove={drag} onPointerUp={() => { dragOrigin.current = undefined }}>
           {mode === 'side' ? (
-            <><figure>{referenceUrl && <img src={referenceUrl} alt={`Referenz: ${reference.name}`} style={imageStyle} />}<figcaption>Referenz</figcaption></figure><figure>{candidateUrl && <img src={candidateUrl} alt={`Kandidat: ${candidate.name}`} style={imageStyle} />}<figcaption>Kandidat</figcaption></figure></>
+            <><figure>{referenceUrl && <img src={referenceUrl} alt={`Referenz: ${reference.name}`} style={imageStyle} />}<figcaption>Referenz</figcaption></figure><figure>{candidateUrl && <img src={candidateUrl} alt={`Kandidat: ${candidate.name}`} style={candidateImageStyle} />}<figcaption>Kandidat</figcaption></figure></>
           ) : (
             <div className="image-stack">
-              {referenceUrl && <img src={referenceUrl} alt={`Referenz: ${reference.name}`} style={imageStyle} />}
-              {candidateUrl && <img className={mode === 'difference' ? 'difference-layer' : ''} src={candidateUrl} alt={`Kandidat: ${candidate.name}`} style={{ ...imageStyle, opacity: mode === 'overlay' ? opacity / 100 : 1 }} />}
+              <div className="image-alignment-frame" style={{ aspectRatio: reference.aspectRatio, width: `min(82%, ${390 * reference.aspectRatio}px)` }}>
+                {referenceUrl && <img src={referenceUrl} alt={`Referenz: ${reference.name}`} style={imageStyle} />}
+                {candidateUrl && <img className={mode === 'difference' ? 'difference-layer' : ''} src={candidateUrl} alt={`Kandidat: ${candidate.name}`} style={{ ...candidateImageStyle, opacity: mode === 'overlay' ? opacity / 100 : 1 }} />}
+              </div>
             </div>
           )}
         </div>
         <div className="comparison-details">
-          {[reference, candidate].map((image, index) => <dl key={image.id}><div><dt>Rolle</dt><dd>{index === 0 ? 'Referenz' : 'Kandidat'}</dd></div><div><dt>Datei</dt><dd>{image.name}</dd></div><div><dt>Pfad</dt><dd>{image.path}</dd></div><div><dt>Format</dt><dd>{image.format.toUpperCase()}</dd></div><div><dt>Auflösung</dt><dd>{image.width} × {image.height}</dd></div><div><dt>Größe</dt><dd>{formatBytes(image.size)}</dd></div>{image.metadata?.capturedAt && <div><dt>Aufgenommen</dt><dd>{new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(image.metadata.capturedAt))}</dd></div>}{image.metadata?.latitude !== undefined && image.metadata.longitude !== undefined && <div><dt>GPS</dt><dd>{formatCoordinates(image.metadata.latitude, image.metadata.longitude)}</dd></div>}{(image.metadata?.cameraMake || image.metadata?.cameraModel) && <div><dt>Kamera</dt><dd>{[image.metadata.cameraMake, image.metadata.cameraModel].filter(Boolean).join(' ')}</dd></div>}{image.metadata?.lensModel && <div><dt>Objektiv</dt><dd>{image.metadata.lensModel}</dd></div>}</dl>)}
-          <dl className="metrics"><div><dt>Bildähnlichkeit</dt><dd>{edge ? `${Math.round(edge.score)} %` : '–'}</dd></div><div><dt>pHash-Distanz</dt><dd>{edge?.metrics.pHashDistance ?? '–'}</dd></div><div><dt>dHash-Distanz</dt><dd>{edge?.metrics.dHashDistance ?? '–'}</dd></div><div><dt>SSIM</dt><dd>{edge?.metrics.ssim?.toFixed(3) ?? '–'}</dd></div><div><dt>Farbähnlichkeit</dt><dd>{edge?.metrics.histogramSimilarity ? `${Math.round(edge.metrics.histogramSimilarity * 100)} %` : '–'}</dd></div>{edge?.metadata?.gpsDistanceMeters !== undefined && <div><dt>GPS-Abstand</dt><dd>{formatDistanceMeters(edge.metadata.gpsDistanceMeters)}</dd></div>}{edge?.metadata?.captureTimeDifferenceSeconds !== undefined && <div><dt>Zeitabstand</dt><dd>{formatDuration(edge.metadata.captureTimeDifferenceSeconds * 1_000)}</dd></div>}{edge?.metadata?.sameCameraModel !== undefined && <div><dt>Kameraabgleich</dt><dd>{edge.metadata.sameCameraModel ? 'gleiches Modell' : 'verschiedene Modelle'}</dd></div>}</dl>
+          {[reference, candidate].map((image, index) => <dl key={image.id}><div><dt>Rolle</dt><dd>{index === 0 ? 'Tatsächliche Vergleichsbasis' : 'Kandidat'}</dd></div><div><dt>Datei</dt><dd>{image.name}</dd></div><div><dt>Pfad</dt><dd>{image.path}</dd></div><div><dt>Format</dt><dd>{image.format.toUpperCase()}</dd></div><div><dt>Auflösung</dt><dd>{image.width} × {image.height}</dd></div><div><dt>Größe</dt><dd>{formatBytes(image.size)}</dd></div>{image.metadata?.capturedAt && <div><dt>Aufgenommen</dt><dd>{new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(image.metadata.capturedAt))}</dd></div>}{image.metadata?.latitude !== undefined && image.metadata.longitude !== undefined && <div><dt>GPS</dt><dd>{formatCoordinates(image.metadata.latitude, image.metadata.longitude)}</dd></div>}{(image.metadata?.cameraMake || image.metadata?.cameraModel) && <div><dt>Kamera</dt><dd>{[image.metadata.cameraMake, image.metadata.cameraModel].filter(Boolean).join(' ')}</dd></div>}{image.metadata?.lensModel && <div><dt>Objektiv</dt><dd>{image.metadata.lensModel}</dd></div>}</dl>)}
+          <dl className="metrics"><div><dt>Bildähnlichkeit</dt><dd>{edge ? `${Math.round(edge.score)}/100` : '–'}</dd></div><div><dt>pHash-Distanz</dt><dd>{edge?.metrics.pHashDistance ?? '–'}</dd></div><div><dt>dHash-Distanz</dt><dd>{edge?.metrics.dHashDistance ?? '–'}</dd></div><div><dt>SSIM</dt><dd>{edge?.metrics.ssim?.toFixed(3) ?? '–'}</dd></div><div><dt>Farbähnlichkeit</dt><dd>{edge?.metrics.histogramSimilarity ? `${Math.round(edge.metrics.histogramSimilarity * 100)} %` : '–'}</dd></div>{edge?.metadata?.gpsDistanceMeters !== undefined && <div><dt>GPS-Abstand</dt><dd>{formatDistanceMeters(edge.metadata.gpsDistanceMeters)}</dd></div>}{edge?.metadata?.captureTimeDifferenceSeconds !== undefined && <div><dt>Zeitabstand</dt><dd>{formatDuration(edge.metadata.captureTimeDifferenceSeconds * 1_000)}</dd></div>}{edge?.metadata?.sameCameraModel !== undefined && <div><dt>Kameraabgleich</dt><dd>{edge.metadata.sameCameraModel ? 'gleiches Modell' : 'verschiedene Modelle'}</dd></div>}</dl>
         </div>
-        <p className="score-disclaimer">Der Prozentwert ist ein technischer Ähnlichkeitswert und keine mathematische Garantie.</p>
+        <p className="score-disclaimer">Der Wert von 0 bis 100 ist ein technischer Ähnlichkeitswert und keine Wahrscheinlichkeit oder Garantie.</p>
       </div>
     </dialog>
   )

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Ban, CircleCheck, LoaderCircle, Pause, Play } from 'lucide-react'
 import type { AnalysisPhase, AnalysisProgress as Progress } from '../core/types'
 import { formatDuration, formatPercent } from '../utils/format'
@@ -22,8 +23,19 @@ interface AnalysisProgressProps {
 }
 
 export function AnalysisProgress({ progress, paused, onPause, onResume, onCancel }: AnalysisProgressProps) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
+    return () => window.clearInterval(timer)
+  }, [])
   const phaseIndex = PHASES.findIndex((phase) => phase.key === progress.phase)
-  const elapsed = progress.startedAt ? Date.now() - progress.startedAt : 0
+  const elapsed = progress.startedAt ? now - progress.startedAt : 0
+  const executionLabel = progress.execution?.mode === 'worker-pool'
+    ? `${progress.execution.workerCount} Bild-Worker aktiv`
+    : progress.execution?.mode === 'main-thread'
+      ? 'Hauptthread-Kompatibilitätsmodus'
+      : undefined
+  const currentPhaseElapsed = progress.phaseStartedAt ? Math.max(0, now - progress.phaseStartedAt) : 0
   return (
     <section className="progress-panel card" aria-live="polite" aria-labelledby="progress-title">
       <div className="progress-topline">
@@ -35,7 +47,10 @@ export function AnalysisProgress({ progress, paused, onPause, onResume, onCancel
         <div><dt>Bilder</dt><dd>{progress.processed.toLocaleString('de-DE')} / {progress.total.toLocaleString('de-DE')}</dd></div>
         <div><dt>Kandidaten</dt><dd>{progress.candidates.toLocaleString('de-DE')}</dd></div>
         <div><dt>Vergangene Zeit</dt><dd>{formatDuration(elapsed)}</dd></div>
+        {executionLabel && <div><dt>Verarbeitung</dt><dd>{executionLabel}</dd></div>}
+        {progress.phaseStartedAt && <div><dt>Aktuelle Phase</dt><dd>{formatDuration(currentPhaseElapsed)}</dd></div>}
       </dl>
+      {progress.warning && <p className="notice-message" role="alert">{progress.warning}</p>}
       <ol className="phase-list">
         {PHASES.map((phase, index) => {
           const complete = index < phaseIndex || progress.phase === 'completed'

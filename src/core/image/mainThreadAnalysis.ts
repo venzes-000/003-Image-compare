@@ -24,8 +24,11 @@ async function decodeWithImageElement(blob: Blob): Promise<HTMLImageElement> {
 }
 
 export async function analyzeImageOnMainThread(payload: AnalyzeImagePayload): Promise<ImageAnalyzedPayload> {
+  const totalStartedAt = performance.now()
   const blob = new Blob([payload.buffer], { type: payload.image.mime })
-  const metadata = await extractCaptureMetadata(payload.buffer, payload.image.archiveModifiedAt)
+  const metadataStartedAt = performance.now()
+  const metadataPromise = extractCaptureMetadata(payload.buffer, payload.image.archiveModifiedAt)
+  const decodeStartedAt = performance.now()
   let bitmap: ImageBitmap | undefined
   let source: CanvasImageSource
   let width: number
@@ -63,7 +66,11 @@ export async function analyzeImageOnMainThread(payload: AnalyzeImagePayload): Pr
       width = image.naturalWidth
       height = image.naturalHeight
     }
+    const decodeMs = performance.now() - decodeStartedAt
+    const metadata = await metadataPromise
+    const metadataMs = performance.now() - metadataStartedAt
 
+    const analysisStartedAt = performance.now()
     const analysisCanvas = document.createElement('canvas')
     analysisCanvas.width = APP_LIMITS.analysisSize
     analysisCanvas.height = APP_LIMITS.analysisSize
@@ -71,7 +78,10 @@ export async function analyzeImageOnMainThread(payload: AnalyzeImagePayload): Pr
     if (!analysisContext) throw new Error('Der Kompatibilitätsmodus konnte nicht gestartet werden.')
     analysisContext.drawImage(source, 0, 0, APP_LIMITS.analysisSize, APP_LIMITS.analysisSize)
     const imageData = analysisContext.getImageData(0, 0, APP_LIMITS.analysisSize, APP_LIMITS.analysisSize)
+    const feature = createFeatureRecord(payload.image, width, height, imageData, metadata)
+    const analysisMs = performance.now() - analysisStartedAt
 
+    const thumbnailStartedAt = performance.now()
     const scale = Math.min(1, APP_LIMITS.thumbnailMaxEdge / Math.max(width, height))
     const thumbnailCanvas = document.createElement('canvas')
     thumbnailCanvas.width = Math.max(1, Math.round(width * scale))
@@ -81,9 +91,21 @@ export async function analyzeImageOnMainThread(payload: AnalyzeImagePayload): Pr
     thumbnailContext.drawImage(source, 0, 0, thumbnailCanvas.width, thumbnailCanvas.height)
     const thumbnailBlob = await canvasToBlob(thumbnailCanvas, 'image/webp', 0.78)
     const thumbnail = await thumbnailBlob.arrayBuffer()
-    const feature = createFeatureRecord(payload.image, width, height, imageData, metadata)
+    const thumbnailMs = performance.now() - thumbnailStartedAt
 
-    return { taskId: payload.taskId, feature, thumbnail, thumbnailMime: thumbnailBlob.type }
+    return {
+      taskId: payload.taskId,
+      feature,
+      thumbnail,
+      thumbnailMime: thumbnailBlob.type,
+      timings: {
+        metadataMs,
+        decodeMs,
+        analysisMs,
+        thumbnailMs,
+        totalMs: performance.now() - totalStartedAt,
+      },
+    }
   } finally {
     bitmap?.close()
   }

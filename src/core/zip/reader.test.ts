@@ -40,4 +40,18 @@ describe('ZipArchiveService', () => {
       message: expect.stringContaining('gültige'),
     })
   })
+
+  it('reicht fatale Fehler des Bild-Consumers unverändert durch', async () => {
+    const archive = new JSZip()
+    archive.file('Fotos/a.jpg', Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]))
+    const bytes = await archive.generateAsync({ type: 'arraybuffer' })
+    const service = new ZipArchiveService()
+    const fatal = new Error('worker pool unavailable')
+
+    await expect(service.readImages(
+      new Blob([bytes]),
+      () => Promise.reject(fatal),
+      { useWebWorkers: false },
+    )).rejects.toBe(fatal)
+  })
 })

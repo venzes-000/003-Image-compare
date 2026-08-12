@@ -1,10 +1,18 @@
 import type {
   AnalysisResult,
   CandidateEdge,
+  Decision,
   DuplicateGroup,
   ImageFeatureRecord,
   MetadataAssessment,
 } from '../types'
+import {
+  effectiveCandidateRotationDegrees,
+  groupCandidateIds,
+  resolveComparisonDecision,
+  resolveGroupComparison,
+  type ResolvedGroupComparison,
+} from '../clustering'
 
 export const CSV_BOM = '\ufeff'
 export const DEFAULT_CSV_DELIMITER = ';'
@@ -19,11 +27,17 @@ export interface CsvOptions {
 export const CSV_REPORT_HEADERS = [
   'Gruppen-ID',
   'Status',
-  'Referenzdatei',
+  'Ergebnisbereich',
+  'Gruppenreferenzdatei',
+  'Vergleichsbasisdatei',
   'Kandidatendatei',
-  'Referenzpfad',
+  'Gruppenreferenzpfad',
+  'Vergleichbasispfad',
   'Kandidatenpfad',
-  'Ähnlichkeitswert',
+  'Kanten-ID',
+  'Verbindung zur Gruppenreferenz',
+  'Bildähnlichkeit (0-100)',
+  'Effektive Kandidatendrehung (Grad)',
   'Kategorie',
   'Nutzerentscheidung',
   'pHash-Distanz',
@@ -32,21 +46,21 @@ export const CSV_REPORT_HEADERS = [
   'Histogramm-Ähnlichkeit',
   'Feature-Matching-Wert',
   'KI-Ähnlichkeit',
-  'Referenzbreite',
-  'Referenzhöhe',
+  'Vergleichsbasisbreite',
+  'Vergleichbasishöhe',
   'Kandidatenbreite',
   'Kandidatenhöhe',
-  'Referenzformat',
+  'Vergleichsbasisformat',
   'Kandidatenformat',
-  'Referenz-Aufnahmezeit',
+  'Vergleichsbasis-Aufnahmezeit',
   'Kandidaten-Aufnahmezeit',
-  'Referenz-Archivänderung',
+  'Vergleichsbasis-Archivänderung',
   'Kandidaten-Archivänderung',
-  'Referenzkamera',
+  'Vergleichsbasiskamera',
   'Kandidatenkamera',
-  'Referenzobjektiv',
+  'Vergleichsbasisobjektiv',
   'Kandidatenobjektiv',
-  'Referenz-GPS vorhanden',
+  'Vergleichsbasis-GPS vorhanden',
   'Kandidaten-GPS vorhanden',
   'Metadatenstatus',
   'Metadaten-Kontextwert',
@@ -57,8 +71,8 @@ export const CSV_REPORT_HEADERS = [
 ] as const
 
 const EXACT_GPS_HEADERS = [
-  'Referenz-Breitengrad',
-  'Referenz-Längengrad',
+  'Vergleichsbasis-Breitengrad',
+  'Vergleichsbasis-Längengrad',
   'Kandidaten-Breitengrad',
   'Kandidaten-Längengrad',
 ] as const
@@ -70,7 +84,7 @@ export function createCsvReport(result: AnalysisResult, options: CsvOptions = {}
     ...(includeExactGps ? EXACT_GPS_HEADERS : []),
   ]]
   const images = new Map(result.images.map((image) => [image.id, image]))
-  const edges = createEdgeMap(result.edges)
+  const edges = new Map(result.edges.map((edge) => [edge.id, edge]))
 
   for (const group of result.groups) {
     const reference = images.get(group.referenceId)
@@ -78,8 +92,10 @@ export function createCsvReport(result: AnalysisResult, options: CsvOptions = {}
     for (const candidateId of groupCandidateIds(group)) {
       const candidate = images.get(candidateId)
       if (candidate === undefined) continue
-      const edge = edges.get(edgeKey(reference.id, candidate.id))
-      rows.push(csvReportRow(group, reference, candidate, edge, includeExactGps))
+      const comparison = resolveGroupComparison(group, candidate.id, edges)
+      const comparisonBase = images.get(comparison.baseImageId) ?? reference
+      const comparisonDecision = resolveComparisonDecision(comparison, result.comparisonDecisions, candidate.decision)
+      rows.push(csvReportRow(group, reference, comparisonBase, candidate, comparison, comparisonDecision, includeExactGps))
     }
   }
   return formatCsv(rows, options)
@@ -131,42 +147,51 @@ function isFormulaLike(value: string): boolean {
 
 function csvReportRow(
   group: DuplicateGroup,
-  reference: ImageFeatureRecord,
+  groupReference: ImageFeatureRecord,
+  comparisonBase: ImageFeatureRecord,
   candidate: ImageFeatureRecord,
-  edge: CandidateEdge | undefined,
+  comparison: ResolvedGroupComparison,
+  comparisonDecision: Decision,
   includeExactGps: boolean,
 ): unknown[] {
+  const edge = comparison.edge
   const row: unknown[] = [
     group.id,
-    group.status === 'reviewed' ? 'Geprüft' : 'Ungeprüft',
-    reference.name,
+    comparisonDecision === 'duplicate' || comparisonDecision === 'different' ? 'Geprüft' : 'Ungeprüft',
+    presentationTierLabel(comparison.presentationTier),
+    groupReference.name,
+    comparisonBase.name,
     candidate.name,
-    reference.path,
+    groupReference.path,
+    comparisonBase.path,
     candidate.path,
+    edge?.id,
+    comparison.directToReference ? 'Direkt' : 'Indirekt über Gruppenmitglied',
     edge?.score,
+    effectiveCandidateRotationDegrees(edge, candidate.id),
     edge === undefined ? undefined : categoryLabel(edge.category),
-    decisionLabel(candidate.decision),
+    decisionLabel(comparisonDecision),
     edge?.metrics.pHashDistance,
     edge?.metrics.dHashDistance,
     edge?.metrics.ssim,
     edge?.metrics.histogramSimilarity,
     edge?.metrics.featureMatchScore,
     edge?.metrics.aiSimilarity,
-    reference.width,
-    reference.height,
+    comparisonBase.width,
+    comparisonBase.height,
     candidate.width,
     candidate.height,
-    reference.format.toUpperCase(),
+    comparisonBase.format.toUpperCase(),
     candidate.format.toUpperCase(),
-    reference.metadata?.capturedAt,
+    comparisonBase.metadata?.capturedAt,
     candidate.metadata?.capturedAt,
-    reference.metadata?.archiveModifiedAt,
+    comparisonBase.metadata?.archiveModifiedAt,
     candidate.metadata?.archiveModifiedAt,
-    cameraLabel(reference),
+    cameraLabel(comparisonBase),
     cameraLabel(candidate),
-    reference.metadata?.lensModel,
+    comparisonBase.metadata?.lensModel,
     candidate.metadata?.lensModel,
-    yesNo(hasGps(reference)),
+    yesNo(hasGps(comparisonBase)),
     yesNo(hasGps(candidate)),
     metadataStatusLabel(edge?.metadata?.status),
     edge?.metadata?.contextScore,
@@ -178,8 +203,8 @@ function csvReportRow(
 
   if (includeExactGps) {
     row.push(
-      reference.metadata?.latitude,
-      reference.metadata?.longitude,
+      comparisonBase.metadata?.latitude,
+      comparisonBase.metadata?.longitude,
       candidate.metadata?.latitude,
       candidate.metadata?.longitude,
     )
@@ -224,16 +249,8 @@ function categoryLabel(category: CandidateEdge['category']): string {
   return 'Wahrscheinlich verschieden'
 }
 
-function createEdgeMap(edges: readonly CandidateEdge[]): Map<string, CandidateEdge> {
-  const map = new Map<string, CandidateEdge>()
-  for (const edge of edges) map.set(edgeKey(edge.sourceId, edge.targetId), edge)
-  return map
-}
-
-function edgeKey(firstId: string, secondId: string): string {
-  return firstId < secondId ? `${firstId}\u0000${secondId}` : `${secondId}\u0000${firstId}`
-}
-
-function groupCandidateIds(group: DuplicateGroup): string[] {
-  return [...new Set([...group.memberIds, ...group.uncertainIds])].filter((id) => id !== group.referenceId)
+function presentationTierLabel(tier: ResolvedGroupComparison['presentationTier']): string {
+  if (tier === 'strong') return 'Starker Treffer'
+  if (tier === 'manual-review') return 'Manuell prüfen'
+  return 'Niedrige Priorität'
 }

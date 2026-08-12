@@ -35,14 +35,14 @@ export function useCompatibility(): { items: CompatibilityItem[]; ready: boolean
         label: 'Bilddekodierung',
         available: typeof createImageBitmap !== 'undefined',
         required: false,
-        detail: typeof createImageBitmap !== 'undefined' ? 'Schnelle Bilddekodierung verfügbar.' : 'Kompatibilitätsmodus wird verwendet.',
+        detail: typeof createImageBitmap !== 'undefined' ? 'Schnelle Bilddekodierung verfügbar.' : 'Langsamer Hauptthread-Kompatibilitätsmodus wird verwendet.',
       },
       {
         key: 'offscreen',
         label: 'OffscreenCanvas',
         available: typeof OffscreenCanvas !== 'undefined',
         required: false,
-        detail: typeof OffscreenCanvas !== 'undefined' ? 'Vorschauen können im Hintergrund entstehen.' : 'Kompatibilitätsmodus wird verwendet.',
+        detail: typeof OffscreenCanvas !== 'undefined' ? 'Vorschauen können im Hintergrund entstehen.' : 'Langsamer Hauptthread-Kompatibilitätsmodus wird verwendet.',
       },
       {
         key: 'wasm',

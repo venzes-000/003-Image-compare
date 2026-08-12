@@ -5,6 +5,7 @@ import { createDefaultSettings } from '../core/config/limits'
 import { createZipFingerprint, zipArchiveService } from '../core/zip'
 import { analysisStorage } from '../core/storage'
 import { decodeSpecialImage, needsSpecialDecoder } from '../core/image/specialDecoders'
+import { groupCandidateIds, resolveComparisonDecision, resolveGroupComparison, safeBulkCandidateIds, type ResultPresentationTier } from '../core/clustering'
 import {
   createCleanedFileListBlob,
   createCsvBlob,
@@ -30,7 +31,7 @@ import { CompatibilityCheck } from '../components/CompatibilityCheck'
 import { FileSelection } from '../components/FileSelection'
 import { AnalysisSettings } from '../components/AnalysisSettings'
 import { AnalysisProgress as ProgressPanel } from '../components/AnalysisProgress'
-import { ResultsToolbar, type ResultFilter, type ResultSort } from '../components/ResultsToolbar'
+import { ResultsToolbar, type ResultFilter, type ResultSection, type ResultSort } from '../components/ResultsToolbar'
 import { DuplicateGroupCard } from '../components/DuplicateGroupCard'
 import { ComparisonDialog } from '../components/ComparisonDialog'
 import { ExportPanel } from '../components/ExportPanel'
@@ -50,6 +51,52 @@ interface ComparisonSelection {
   reference: ImageFeatureRecord
   candidate: ImageFeatureRecord
   edge?: CandidateEdge
+}
+
+interface PresentedGroup {
+  key: string
+  tier: ResultPresentationTier
+  group: DuplicateGroup
+}
+
+function createPresentedGroups(
+  groups: readonly DuplicateGroup[],
+  edges: ReadonlyMap<string, CandidateEdge>,
+): PresentedGroup[] {
+  const presented: PresentedGroup[] = []
+  for (const group of groups) {
+    const strongIds = group.memberIds.filter((imageId) => imageId !== group.referenceId)
+    if (strongIds.length > 0) {
+      presented.push({
+        key: `${group.id}:strong`,
+        tier: 'strong',
+        group: { ...group, memberIds: [group.referenceId, ...strongIds], uncertainIds: [] },
+      })
+    }
+
+    const reviewIds: string[] = []
+    const lowPriorityIds: string[] = []
+    for (const candidateId of group.uncertainIds) {
+      const resolved = resolveGroupComparison(group, candidateId, edges)
+      if (resolved.presentationTier === 'low-priority') lowPriorityIds.push(candidateId)
+      else reviewIds.push(candidateId)
+    }
+    if (reviewIds.length > 0) {
+      presented.push({
+        key: `${group.id}:manual-review`,
+        tier: 'manual-review',
+        group: { ...group, memberIds: [group.referenceId], uncertainIds: reviewIds },
+      })
+    }
+    if (lowPriorityIds.length > 0) {
+      presented.push({
+        key: `${group.id}:low-priority`,
+        tier: 'low-priority',
+        group: { ...group, memberIds: [group.referenceId], uncertainIds: lowPriorityIds },
+      })
+    }
+  }
+  return presented
 }
 
 const cacheAdapter: AnalysisCacheAdapter = {
@@ -88,6 +135,9 @@ async function createBrowserPreview(blob: Blob, format: ImageFeatureRecord['form
 
 function App() {
   const engineRef = useRef<AnalysisEngine | undefined>(undefined)
+  const selectedFileRef = useRef<File | undefined>(undefined)
+  const cacheLookupGenerationRef = useRef(0)
+  const analysisSaveChainRef = useRef<Promise<void>>(Promise.resolve())
   const [file, setFile] = useState<File>()
   const [settings, setSettings] = useState<Settings>(() => createDefaultSettings())
   const [cacheEnabled, setCacheEnabled] = useState(false)
@@ -101,6 +151,7 @@ function App() {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<ResultFilter>('all')
   const [sort, setSort] = useState<ResultSort>('similarity-desc')
+  const [resultSection, setResultSection] = useState<ResultSection>('strong')
   const [visibleCount, setVisibleCount] = useState(20)
   const [comparison, setComparison] = useState<ComparisonSelection>()
   const [notice, setNotice] = useState<string>()
@@ -116,7 +167,7 @@ function App() {
     return () => engineRef.current?.cancel()
   }, [])
 
-  useEffect(() => setVisibleCount(20), [filter, query, sort])
+  useEffect(() => setVisibleCount(20), [filter, query, resultSection, sort])
 
   const handleSettingsChange = (next: Settings) => {
     setSettings(next)
@@ -126,25 +177,34 @@ function App() {
   const handleCacheChange = (enabled: boolean) => {
     setCacheEnabled(enabled)
     void analysisStorage.setCacheEnabled(enabled).catch(() => undefined)
-    if (!enabled) setCachedResult(undefined)
+    if (!enabled) {
+      cacheLookupGenerationRef.current += 1
+      setCheckingCache(false)
+      setCachedResult(undefined)
+    }
     else if (file) void checkForCachedResult(file, true)
   }
 
   const checkForCachedResult = async (selectedFile: File, force = false) => {
+    const generation = ++cacheLookupGenerationRef.current
     if (!force && !cacheEnabled && !(await analysisStorage.isCacheEnabled().catch(() => false))) return
     setCheckingCache(true)
     try {
       const fingerprint = await createZipFingerprint(selectedFile)
       const stored = await analysisStorage.loadAnalysis(fingerprint)
+      if (generation !== cacheLookupGenerationRef.current || selectedFileRef.current !== selectedFile) return
       setCachedResult(stored)
     } catch {
+      if (generation !== cacheLookupGenerationRef.current || selectedFileRef.current !== selectedFile) return
       setCachedResult(undefined)
     } finally {
-      setCheckingCache(false)
+      if (generation === cacheLookupGenerationRef.current) setCheckingCache(false)
     }
   }
 
   const handleFileSelect = (selectedFile: File) => {
+    cacheLookupGenerationRef.current += 1
+    selectedFileRef.current = selectedFile
     thumbnailStore.clear()
     setFile(selectedFile)
     setResult(undefined)
@@ -157,6 +217,8 @@ function App() {
 
   const startAnalysis = async () => {
     if (!file || running || !browserReady) return
+    cacheLookupGenerationRef.current += 1
+    setCheckingCache(false)
     setCachedResult(undefined)
     setResult(undefined)
     setErrors([])
@@ -181,7 +243,8 @@ function App() {
       setResult(analysis)
       setErrors(analysis.errors)
     } catch (error) {
-      const aborted = (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError'
+      const aborted = ((error instanceof DOMException || error instanceof Error) && error.name === 'AbortError')
+        || (typeof error === 'object' && error !== null && 'code' in error && error.code === 'cancelled')
       if (!aborted) {
         setErrors((current) => [
           ...current,
@@ -203,18 +266,30 @@ function App() {
     }
   }
 
-  const continueCachedAnalysis = () => {
-    if (!cachedResult) return
+  const continueCachedAnalysis = async () => {
+    const stored = cachedResult
+    const selectedFile = selectedFileRef.current
+    if (!stored || !selectedFile) return
+    const generation = ++cacheLookupGenerationRef.current
+    setCheckingCache(true)
+    const fingerprint = await createZipFingerprint(selectedFile).catch(() => undefined)
+    if (generation !== cacheLookupGenerationRef.current || selectedFileRef.current !== selectedFile) return
+    setCheckingCache(false)
+    if (fingerprint !== stored.zipFingerprint || stored.zipName !== selectedFile.name || stored.zipSize !== selectedFile.size) {
+      setCachedResult(undefined)
+      setNotice('Die gespeicherte Analyse gehört nicht zur aktuell ausgewählten ZIP-Datei. Bitte neu analysieren.')
+      return
+    }
     thumbnailStore.clear()
-    thumbnailStore.setFingerprint(cachedResult.zipFingerprint)
-    setResult(cachedResult)
-    setErrors(cachedResult.errors)
+    thumbnailStore.setFingerprint(stored.zipFingerprint)
+    setResult(stored)
+    setErrors(stored.errors)
     setProgress({
       phase: 'completed',
       percent: 100,
-      processed: cachedResult.images.length,
-      total: cachedResult.images.length,
-      candidates: cachedResult.edges.length,
+      processed: stored.images.length,
+      total: stored.images.length,
+      candidates: stored.edges.length,
       message: 'Gespeicherte Analyse geladen',
     })
     setCachedResult(undefined)
@@ -243,17 +318,36 @@ function App() {
     setResult((current) => {
       if (!current) return current
       const next = updater(current)
-      if (cacheEnabled) void analysisStorage.saveAnalysis(next.zipFingerprint, next).catch(() => undefined)
+      if (cacheEnabled) {
+        analysisSaveChainRef.current = analysisSaveChainRef.current
+          .catch(() => undefined)
+          .then(() => analysisStorage.saveAnalysis(next.zipFingerprint, next))
+          .catch(() => undefined)
+      }
       return next
     })
   }
 
-  const updateDecision = (imageId: string, decision: Decision) => {
+  const updateDecision = (
+    imageId: string,
+    edgeId: string | undefined,
+    tier: ResultPresentationTier,
+    decision: Decision,
+  ) => {
     persistUpdatedResult((current) => ({
       ...current,
-      images: current.images.map((image) => image.id === imageId ? { ...image, decision } : image),
+      images: tier === 'strong'
+        ? current.images.map((image) => image.id === imageId ? { ...image, decision } : image)
+        : current.images,
+      comparisonDecisions: edgeId && tier !== 'strong'
+        ? { ...current.comparisonDecisions, [edgeId]: decision }
+        : current.comparisonDecisions,
+      groups: decision === 'later' || decision === 'unreviewed'
+        ? current.groups.map((group) => edgeId && group.edgeIds.includes(edgeId)
+          ? { ...group, status: 'unreviewed' }
+          : group)
+        : current.groups,
     }))
-    if (cacheEnabled && result) void analysisStorage.saveDecision(result.zipFingerprint, imageId, decision).catch(() => undefined)
   }
 
   const updateGroup = (groupId: string, updater: (group: DuplicateGroup) => DuplicateGroup | undefined) => {
@@ -284,12 +378,39 @@ function App() {
   const markAllDuplicates = (groupId: string) => {
     const group = result?.groups.find((candidate) => candidate.id === groupId)
     if (!group) return
-    const ids = new Set([...group.memberIds, ...group.uncertainIds])
-    ids.delete(group.referenceId)
+    const edges = new Map(result?.edges.map((edge) => [edge.id, edge]) ?? [])
+    const ids = new Set(safeBulkCandidateIds(group, edges))
+    if (ids.size === 0) {
+      setNotice('In dieser Gruppe gibt es keine konfliktfreien starken Kernmitglieder für die Sammelentscheidung.')
+      return
+    }
+    if (!window.confirm(`${ids.size.toLocaleString('de-DE')} konfliktfreie starke Kernmitglieder als Duplikate bestätigen? Unsichere Vorschläge und Metadatenkonflikte bleiben unverändert.`)) return
     persistUpdatedResult((current) => ({
       ...current,
       images: current.images.map((image) => ids.has(image.id) ? { ...image, decision: 'duplicate' as const } : image),
+      comparisonDecisions: current.comparisonDecisions,
     }))
+  }
+
+  const markGroupReviewed = (groupId: string) => {
+    const currentResult = result
+    if (!currentResult) return
+    const group = currentResult.groups.find((candidate) => candidate.id === groupId)
+    if (!group) return
+    const allCandidatesDecided = groupCandidateIds(group).every((imageId) => {
+      const resolved = resolveGroupComparison(group, imageId, edgeMap)
+      const decision = resolveComparisonDecision(
+        resolved,
+        currentResult.comparisonDecisions,
+        group.memberIds.includes(imageId) ? imageMap.get(imageId)?.decision : 'unreviewed',
+      )
+      return decision === 'duplicate' || decision === 'different'
+    })
+    if (!allCandidatesDecided) {
+      setNotice('Bitte zuerst alle starken und unsicheren Vorschläge dieser Gruppe einzeln entscheiden.')
+      return
+    }
+    updateGroup(groupId, (current) => ({ ...current, status: 'reviewed' }))
   }
 
   const openOriginal = async (image: ImageFeatureRecord) => {
@@ -313,35 +434,62 @@ function App() {
 
   const imageMap = useMemo(() => new Map(result?.images.map((image) => [image.id, image]) ?? []), [result?.images])
   const edgeMap = useMemo(() => new Map(result?.edges.map((edge) => [edge.id, edge]) ?? []), [result?.edges])
+  const presentedGroups = useMemo(() => createPresentedGroups(result?.groups ?? [], edgeMap), [edgeMap, result?.groups])
+  const sectionCounts = useMemo(() => {
+    const counts: Record<ResultSection, number> = { strong: 0, 'manual-review': 0, 'low-priority': 0 }
+    for (const presented of presentedGroups) counts[presented.tier] += groupCandidateIds(presented.group).length
+    return counts
+  }, [presentedGroups])
+  const effectiveSection: ResultSection = sectionCounts[resultSection] > 0
+    ? resultSection
+    : sectionCounts.strong > 0
+      ? 'strong'
+      : sectionCounts['manual-review'] > 0
+        ? 'manual-review'
+        : 'low-priority'
   const filteredGroups = useMemo(() => {
     if (!result) return []
     const normalizedQuery = query.trim().toLocaleLowerCase('de-DE')
-    const groupScore = (group: DuplicateGroup) => Math.max(0, ...group.edgeIds.map((id) => edgeMap.get(id)?.score ?? 0))
+    const comparisons = (group: DuplicateGroup) => {
+      const original = result.groups.find((candidate) => candidate.id === group.id) ?? group
+      return groupCandidateIds(group)
+        .map((candidateId) => resolveGroupComparison(original, candidateId, edgeMap))
+    }
+    const groupScore = (group: DuplicateGroup) => Math.max(0, ...comparisons(group).map((item) => item.edge?.score ?? 0))
     const matchesFilter = (group: DuplicateGroup) => {
-      const ids = new Set([...group.memberIds, ...group.uncertainIds])
-      const groupEdges = result.edges.filter((edge) => ids.has(edge.sourceId) && ids.has(edge.targetId))
-      const groupImages = result.images.filter((image) => ids.has(image.id))
+      const groupEdges = comparisons(group).map((item) => item.edge).filter((edge): edge is CandidateEdge => Boolean(edge))
       if (filter === 'all') return true
-      if (filter === 'duplicate' || filter === 'different' || filter === 'unreviewed') return groupImages.some((image) => image.decision === filter)
+      if (filter === 'duplicate' || filter === 'different' || filter === 'unreviewed') {
+        return comparisons(group).some((comparison) => {
+          const decision = resolveComparisonDecision(
+            comparison,
+            result.comparisonDecisions,
+            imageMap.get(comparison.candidateId)?.decision,
+          )
+          return decision === filter
+        })
+      }
       return groupEdges.some((edge) => edge.category === filter)
     }
-    const groups = result.groups.filter((group) => {
+    const groups = presentedGroups.filter((presented) => {
+      if (presented.tier !== effectiveSection) return false
+      const group = presented.group
       const ids = new Set([...group.memberIds, ...group.uncertainIds])
       const queryMatches = !normalizedQuery || result.images.some((image) => ids.has(image.id) && `${image.name}\n${image.path}`.toLocaleLowerCase('de-DE').includes(normalizedQuery))
       return queryMatches && matchesFilter(group)
     })
     return groups.sort((left, right) => {
-      const leftReference = imageMap.get(left.referenceId)
-      const rightReference = imageMap.get(right.referenceId)
-      if (sort === 'similarity-desc') return groupScore(right) - groupScore(left)
-      if (sort === 'similarity-asc') return groupScore(left) - groupScore(right)
-      if (sort === 'group-size') return right.memberIds.length + right.uncertainIds.length - left.memberIds.length - left.uncertainIds.length
+      const leftReference = imageMap.get(left.group.referenceId)
+      const rightReference = imageMap.get(right.group.referenceId)
+      if (sort === 'similarity-desc') return groupScore(right.group) - groupScore(left.group)
+      if (sort === 'similarity-asc') return groupScore(left.group) - groupScore(right.group)
+      if (sort === 'group-size') return groupCandidateIds(right.group).length - groupCandidateIds(left.group).length
       if (sort === 'size') return (rightReference?.size ?? 0) - (leftReference?.size ?? 0)
       const leftValue = sort === 'path' ? leftReference?.path : leftReference?.name
       const rightValue = sort === 'path' ? rightReference?.path : rightReference?.name
       return (leftValue ?? '').localeCompare(rightValue ?? '', 'de', { numeric: true, sensitivity: 'base' })
     })
-  }, [edgeMap, filter, imageMap, query, result, sort])
+  }, [edgeMap, effectiveSection, filter, imageMap, presentedGroups, query, result, sort])
 
   const exportReport = (kind: 'csv' | 'json' | 'cleaned') => {
     if (!result) return
@@ -370,7 +518,7 @@ function App() {
           <section className="cache-resume card" aria-labelledby="cache-title">
             <ArchiveRestore size={24} aria-hidden="true" />
             <div><h2 id="cache-title">Für diese ZIP-Datei wurden bereits Analysedaten gefunden.</h2><p>Analyse vom {new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(cachedResult.analyzedAt))} mit {cachedResult.images.length.toLocaleString('de-DE')} Bildern fortsetzen?</p></div>
-            <div><button className="button primary" type="button" onClick={continueCachedAnalysis}>Fortsetzen</button><button className="button secondary" type="button" onClick={() => { setCachedResult(undefined); void startAnalysis() }}>Neu analysieren</button><button className="button ghost danger-text" type="button" onClick={() => { void deleteCachedAnalysis() }}><Trash2 size={16} aria-hidden="true" /> Gespeicherte Daten löschen</button></div>
+            <div><button className="button primary" type="button" onClick={() => { void continueCachedAnalysis() }}>Fortsetzen</button><button className="button secondary" type="button" onClick={() => { setCachedResult(undefined); void startAnalysis() }}>Neu analysieren</button><button className="button ghost danger-text" type="button" onClick={() => { void deleteCachedAnalysis() }}><Trash2 size={16} aria-hidden="true" /> Gespeicherte Daten löschen</button></div>
           </section>
         )}
         {notice && <p className="notice-message" role="status"><CheckCircle2 size={17} aria-hidden="true" /> {notice}</p>}
@@ -385,21 +533,21 @@ function App() {
         {result && (
           <section className="results-section" aria-labelledby="results-title">
             <div className="results-heading">
-              <div><span className="eyebrow">Analyse abgeschlossen</span><h2 id="results-title">Mögliche Duplikate</h2><p>Prüfen Sie jeden Treffer. Der technische Wert ist ein Hinweis, keine Garantie.</p></div>
+              <div><span className="eyebrow">Analyse abgeschlossen</span><h2 id="results-title">Duplikate und Prüfvorschläge</h2><p>Starke Treffer, manuelle Prüffälle und widersprüchliche schwache Hinweise sind getrennt.</p></div>
               <dl className="summary-stats">
                 <div><dt>Analysierte Bilder</dt><dd>{result.images.length.toLocaleString('de-DE')}</dd></div>
-                <div><dt>Ergebnisgruppen</dt><dd>{result.groups.length.toLocaleString('de-DE')}</dd></div>
-                <div><dt>Vergleichskanten</dt><dd>{result.edges.length.toLocaleString('de-DE')}</dd></div>
-                <div><dt>Übersprungen / defekt</dt><dd>{(result.summary.skippedEntries + result.summary.corruptedImages).toLocaleString('de-DE')}</dd></div>
+                <div><dt>Starke Treffer</dt><dd>{sectionCounts.strong.toLocaleString('de-DE')}</dd></div>
+                <div><dt>Manuell prüfen</dt><dd>{sectionCounts['manual-review'].toLocaleString('de-DE')}</dd></div>
+                <div><dt>Niedrige Priorität</dt><dd>{sectionCounts['low-priority'].toLocaleString('de-DE')}</dd></div>
               </dl>
             </div>
             <div className="analysis-summary card"><span><HardDriveDownload size={17} aria-hidden="true" /><strong>ZIP-Zusammenfassung</strong></span><span>{result.summary.totalEntries.toLocaleString('de-DE')} Dateien gefunden</span><span>{formatBytes(result.summary.totalUncompressedBytes)} geschätzte Gesamtgröße</span><span>Formate: {result.summary.formats.map((format) => format.toUpperCase()).join(', ') || '–'}</span></div>
-            <ResultsToolbar query={query} filter={filter} sort={sort} onQueryChange={setQuery} onFilterChange={setFilter} onSortChange={setSort} />
+            <ResultsToolbar query={query} filter={filter} sort={sort} section={effectiveSection} sectionCounts={sectionCounts} onQueryChange={setQuery} onFilterChange={setFilter} onSortChange={setSort} onSectionChange={setResultSection} />
             {filteredGroups.length === 0 ? <div className="empty-results card"><ShieldCheck size={30} aria-hidden="true" /><p>{result.groups.length === 0 ? 'Mit den aktuellen Einstellungen wurden keine möglichen Duplikatgruppen gefunden.' : 'Keine Gruppen entsprechen dem aktuellen Filter.'}</p></div> : filteredGroups.slice(0, visibleCount).map((group) => (
-              <DuplicateGroupCard key={group.id} group={group} images={imageMap} edges={edgeMap} onDecision={updateDecision} onReference={setReference} onRemove={removeFromGroup} onCompare={(reference, candidate, edge) => setComparison(edge ? { reference, candidate, edge } : { reference, candidate })} onOriginal={(image) => { void openOriginal(image) }} onMarkAll={markAllDuplicates} onMarkReviewed={(groupId) => updateGroup(groupId, (group) => ({ ...group, status: 'reviewed' }))} onDissolve={(groupId) => updateGroup(groupId, () => undefined)} />
+              <DuplicateGroupCard key={group.key} group={group.group} comparisonGroup={result.groups.find((original) => original.id === group.group.id)} tier={group.tier} images={imageMap} edges={edgeMap} comparisonDecisions={result.comparisonDecisions ?? {}} onDecision={updateDecision} onReference={setReference} onRemove={removeFromGroup} onCompare={(reference, candidate, edge) => setComparison(edge ? { reference, candidate, edge } : { reference, candidate })} onOriginal={(image) => { void openOriginal(image) }} onMarkAll={markAllDuplicates} onMarkReviewed={markGroupReviewed} onDissolve={(groupId) => updateGroup(groupId, () => undefined)} />
             ))}
             {visibleCount < filteredGroups.length && <div className="load-more"><button className="button secondary" type="button" onClick={() => setVisibleCount((count) => count + 20)}>Weitere Gruppen anzeigen ({(filteredGroups.length - visibleCount).toLocaleString('de-DE')})</button></div>}
-            <ExportPanel disabled={result.groups.length === 0} onCsv={() => exportReport('csv')} onJson={() => exportReport('json')} onCleanedList={() => exportReport('cleaned')} />
+            <ExportPanel disabled={result.groups.length === 0} onCsv={() => exportReport('csv')} onJson={() => exportReport('json')} onCleanedList={() => exportReport('cleaned')} onPrint={() => window.print()} />
             {result.errors.length > 0 && <ErrorSummary errors={result.errors} />}
           </section>
         )}
