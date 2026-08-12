@@ -1,12 +1,22 @@
 /// <reference lib="webworker" />
 
-import { hammingDistance } from '../core/hashing'
+import { APP_LIMITS } from '../core/config/limits'
+import {
+  findBestRotationAlignment,
+  hasCompleteRotationVariants,
+  rotateGrayQuarterTurn,
+} from '../core/image/rotationFeatures'
 import {
   calculateGlobalSsim,
   calculateSimilarityAssessment,
   compareHistograms,
   assessMetadata,
 } from '../core/similarity'
+import {
+  isPlausibleLegacyQuarterTurnCandidate,
+  isPlausibleVisualCandidate,
+} from '../core/similarity/assessment'
+import type { QuarterTurn } from '../core/types'
 import type { CandidateEdge, ImageFeatureRecord } from '../core/types'
 import type { CandidateWorkerRequest, CandidateWorkerResponse } from './workerProtocol'
 
@@ -20,6 +30,7 @@ interface RankedPair {
   dHashDistance: number
   pHashDistance: number
   aspectRatioDifference: number
+  targetRotationDegrees: QuarterTurn
 }
 
 let paused = false
@@ -47,24 +58,6 @@ async function checkpoint(): Promise<boolean> {
   return !cancelled
 }
 
-function shouldConsiderPair(
-  a: ImageFeatureRecord,
-  b: ImageFeatureRecord,
-  distances: Pick<RankedPair, 'aHashDistance' | 'dHashDistance' | 'pHashDistance' | 'aspectRatioDifference'>,
-  thresholds: { a: number; d: number; p: number },
-): boolean {
-  const closestHash = Math.min(distances.aHashDistance, distances.dHashDistance, distances.pHashDistance)
-  const twoHashesAgree =
-    Number(distances.aHashDistance <= thresholds.a + 3) +
-      Number(distances.dHashDistance <= thresholds.d + 3) +
-      Number(distances.pHashDistance <= thresholds.p + 3) >=
-    2
-  const nearExact = closestHash <= 4
-  const aspectCompatible = distances.aspectRatioDifference <= 0.38 || nearExact
-  const luminanceCompatible = Math.abs(a.luminanceMean - b.luminanceMean) <= 0.35 || nearExact
-  return aspectCompatible && luminanceCompatible && (nearExact || twoHashesAgree)
-}
-
 async function searchCandidates(
   images: ImageFeatureRecord[],
   settings: Extract<CandidateWorkerRequest, { type: 'SEARCH_CANDIDATES' }>['payload']['settings'],
@@ -80,29 +73,58 @@ async function searchCandidates(
     for (let targetIndex = sourceIndex + 1; targetIndex < images.length; targetIndex += 1) {
       const target = images[targetIndex]
       if (!target) continue
-      const aHashDistance = hammingDistance(source.aHash, target.aHash)
-      const dHashDistance = hammingDistance(source.dHash, target.dHash)
-      const pHashDistance = hammingDistance(source.pHash, target.pHash)
-      const aspectRatioDifference =
-        Math.abs(source.aspectRatio - target.aspectRatio) /
-        Math.max(source.aspectRatio, target.aspectRatio, Number.EPSILON)
-      const distances = { aHashDistance, dHashDistance, pHashDistance, aspectRatioDifference }
-
+      const alignment = findBestRotationAlignment(source, target)
+      const luminanceDifference = Math.abs(source.luminanceMean - target.luminanceMean)
+      let candidateAlignment = alignment
+      let isCandidate = isPlausibleVisualCandidate(
+        {
+          aHashDistance: alignment.aHashDistance,
+          dHashDistance: alignment.dHashDistance,
+          pHashDistance: alignment.pHashDistance,
+          aspectRatioDifference: alignment.aspectRatioDifference,
+          luminanceDifference,
+        },
+        settings,
+      )
       if (
-        shouldConsiderPair(source, target, distances, {
-          a: settings.aHashThreshold,
-          d: settings.dHashThreshold,
-          p: settings.pHashThreshold,
-        })
+        !isCandidate &&
+        !hasCompleteRotationVariants(target.rotationVariants) &&
+        isPlausibleLegacyQuarterTurnCandidate(
+          {
+            aHashDistance: alignment.aHashDistance,
+            dHashDistance: alignment.dHashDistance,
+            pHashDistance: alignment.pHashDistance,
+            aspectRatioDifference: alignment.aspectRatioDifference,
+            luminanceDifference,
+          },
+          source.aspectRatio,
+          target.aspectRatio,
+        )
       ) {
+        const targetRotationDegrees: QuarterTurn = target.aspectRatio < source.aspectRatio ? 90 : 270
+        const targetAspectRatio = 1 / target.aspectRatio
+        candidateAlignment = {
+          ...alignment,
+          targetRotationDegrees,
+          aspectRatioDifference: Math.abs(source.aspectRatio - targetAspectRatio) /
+            Math.max(source.aspectRatio, targetAspectRatio, Number.EPSILON),
+        }
+        isCandidate = true
+      }
+
+      if (isCandidate) {
         rawCandidates += 1
-        const rank =
-          pHashDistance * 0.5 +
-          dHashDistance * 0.3 +
-          aHashDistance * 0.2 +
-          aspectRatioDifference * 20 +
-          Math.abs(source.luminanceMean - target.luminanceMean) * 10
-        const pair: RankedPair = { sourceIndex, targetIndex, rank, ...distances }
+        const rank = candidateAlignment.rank + luminanceDifference * 10
+        const pair: RankedPair = {
+          sourceIndex,
+          targetIndex,
+          aHashDistance: candidateAlignment.aHashDistance,
+          dHashDistance: candidateAlignment.dHashDistance,
+          pHashDistance: candidateAlignment.pHashDistance,
+          aspectRatioDifference: candidateAlignment.aspectRatioDifference,
+          targetRotationDegrees: candidateAlignment.targetRotationDegrees,
+          rank,
+        }
         insertRankedPair(topByImage[sourceIndex] ?? [], pair, settings.candidateLimitPerImage)
         insertRankedPair(topByImage[targetIndex] ?? [], pair, settings.candidateLimitPerImage)
       }
@@ -136,7 +158,15 @@ async function searchCandidates(
     const source = images[pair.sourceIndex]
     const target = images[pair.targetIndex]
     if (!source || !target) continue
-    const ssim = calculateGlobalSsim(source.gray, target.gray)
+    const alignedTargetGray = pair.targetRotationDegrees === 0
+      ? target.gray
+      : rotateGrayQuarterTurn(
+          target.gray,
+          APP_LIMITS.analysisSize,
+          APP_LIMITS.analysisSize,
+          pair.targetRotationDegrees,
+        ).gray
+    const ssim = calculateGlobalSsim(source.gray, alignedTargetGray)
     const histogramSimilarity = compareHistograms(source.histogram, target.histogram)
     const resolutionRatio = Math.min(source.width * source.height, target.width * target.height) /
       Math.max(1, Math.max(source.width * source.height, target.width * target.height))
@@ -149,6 +179,7 @@ async function searchCandidates(
         histogramSimilarity,
         aspectRatioDifference: pair.aspectRatioDifference,
         resolutionRatio,
+        alignmentRotationDegrees: pair.targetRotationDegrees,
       },
       settings,
     )

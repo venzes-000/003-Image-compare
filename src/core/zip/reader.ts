@@ -102,7 +102,15 @@ export class ZipArchiveService {
           continue
         }
 
-        await onImage(image)
+        try {
+          await onImage(image)
+        } catch (error) {
+          // The consumer can fail for reasons unrelated to ZIP parsing (for
+          // example a terminal image-worker failure). Preserve that error so
+          // the pipeline never misreports it as an invalid archive.
+          if (!isCancellation(error)) throw new ZipImageConsumerError(error)
+          throw error
+        }
         processedImages += 1
         options.onProgress?.({
           processed: processedImages,
@@ -119,6 +127,7 @@ export class ZipArchiveService {
       }
       return { inspection, errors, processedImages }
     } catch (error) {
+      if (error instanceof ZipImageConsumerError) throw error.consumerCause
       throw normalizeReaderError(error)
     } finally {
       await closeReader(reader)
@@ -146,6 +155,16 @@ export class ZipArchiveService {
     } finally {
       await closeReader(reader)
     }
+  }
+}
+
+class ZipImageConsumerError extends Error {
+  readonly consumerCause: unknown
+
+  constructor(cause: unknown) {
+    super('Der Bild-Consumer hat die ZIP-Verarbeitung abgebrochen.')
+    this.name = 'ZipImageConsumerError'
+    this.consumerCause = cause
   }
 }
 

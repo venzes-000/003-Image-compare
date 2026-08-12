@@ -157,7 +157,6 @@ export function createDuplicateGroups(
   }
 
   const drafts: GroupDraft[] = []
-  const coreOwner = new Map<string, number>()
   const strongComponents = unionFind.groups().filter((component) => component.length >= 2)
   for (const component of strongComponents) {
     const coreSet = new Set(component)
@@ -165,97 +164,30 @@ export function createDuplicateGroups(
       (edge) => coreSet.has(edge.sourceId) && coreSet.has(edge.targetId),
     )
     const referenceId = selectReference(component, imagesById, componentEdges)
-    const draftIndex = drafts.length
     drafts.push({
       coreIds: [...component],
       uncertainIds: [],
       edgeIds: componentEdges.map((edge) => edge.id),
       referenceId,
     })
-    for (const imageId of component) coreOwner.set(imageId, draftIndex)
   }
 
-  const edgesByImage = new Map<string, CandidateEdge[]>()
+  // Every relation that is not already represented inside a complete-link
+  // duplicate core becomes its own review pair. This keeps primary duplicate
+  // groups unambiguous while ensuring no retained weak/bridging edge silently
+  // disappears from the UI or CSV export.
+  const representedEdgeIds = new Set(drafts.flatMap((draft) => draft.edgeIds))
   for (const edge of relevantEdges) {
-    const sourceEdges = edgesByImage.get(edge.sourceId)
-    if (sourceEdges) sourceEdges.push(edge)
-    else edgesByImage.set(edge.sourceId, [edge])
-    const targetEdges = edgesByImage.get(edge.targetId)
-    if (targetEdges) targetEdges.push(edge)
-    else edgesByImage.set(edge.targetId, [edge])
-  }
-  for (const imageId of imageIds) {
-    if (coreOwner.has(imageId)) continue
-    const linksByDraft = new Map<number, CandidateEdge[]>()
-    for (const edge of edgesByImage.get(imageId) ?? []) {
-      const otherId =
-        edge.sourceId === imageId
-          ? edge.targetId
-          : edge.targetId === imageId
-            ? edge.sourceId
-            : undefined
-      if (otherId === undefined) continue
-      const draftIndex = coreOwner.get(otherId)
-      if (draftIndex === undefined) continue
-      const links = linksByDraft.get(draftIndex)
-      if (links) links.push(edge)
-      else linksByDraft.set(draftIndex, [edge])
-    }
-    const bestDraft = [...linksByDraft.entries()].sort((left, right) => {
-      const leftBest = Math.max(...left[1].map((edge) => edge.score))
-      const rightBest = Math.max(...right[1].map((edge) => edge.score))
-      if (leftBest !== rightBest) return rightBest - leftBest
-      return left[0] - right[0]
-    })[0]
-    if (!bestDraft) continue
-    const draft = drafts[bestDraft[0]]
-    if (!draft) continue
-    draft.uncertainIds.push(imageId)
-    draft.edgeIds.push(...bestDraft[1].map((edge) => edge.id))
-  }
-
-  // Non-core images may occur in an additional review group. This preserves a
-  // weak C-D edge even when C is already the uncertain neighbor of an A-B core.
-  const available = new Set(imageIds.filter((imageId) => !coreOwner.has(imageId)))
-  while (true) {
-    let referenceId: string | undefined
-    let referenceScore = -1
-    for (const imageId of available) {
-      let currentScore = 0
-      let hasNeighbor = false
-      for (const edge of edgesByImage.get(imageId) ?? []) {
-        const otherId = edge.sourceId === imageId ? edge.targetId : edge.sourceId
-        if (!available.has(otherId)) continue
-        currentScore += edge.score
-        hasNeighbor = true
-      }
-      if (!hasNeighbor) continue
-      if (
-        referenceId === undefined ||
-        currentScore > referenceScore ||
-        (currentScore === referenceScore && compareText(imageId, referenceId) < 0)
-      ) {
-        referenceId = imageId
-        referenceScore = currentScore
-      }
-    }
-    if (referenceId === undefined) break
-    const referenceEdges = (edgesByImage.get(referenceId) ?? []).filter((edge) => {
-      const otherId = edge.sourceId === referenceId ? edge.targetId : edge.sourceId
-      return available.has(otherId)
-    })
-    const uncertainIds = referenceEdges
-      .map((edge) => (edge.sourceId === referenceId ? edge.targetId : edge.sourceId))
-      .filter((imageId, index, all) => all.indexOf(imageId) === index)
-      .sort(compareText)
+    if (representedEdgeIds.has(edge.id)) continue
+    const pairIds = [edge.sourceId, edge.targetId]
+    const referenceId = selectReference(pairIds, imagesById, [edge])
+    const candidateId = referenceId === edge.sourceId ? edge.targetId : edge.sourceId
     drafts.push({
       coreIds: [referenceId],
-      uncertainIds,
-      edgeIds: referenceEdges.map((edge) => edge.id),
+      uncertainIds: [candidateId],
+      edgeIds: [edge.id],
       referenceId,
     })
-    available.delete(referenceId)
-    for (const uncertainId of uncertainIds) available.delete(uncertainId)
   }
 
   drafts.sort((left, right) => compareText(left.referenceId, right.referenceId))

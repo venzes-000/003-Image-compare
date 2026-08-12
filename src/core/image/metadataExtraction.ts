@@ -19,6 +19,7 @@ export async function extractCaptureMetadata(
       gps: true,
       mergeOutput: true,
       sanitize: true,
+      translateValues: false,
       reviveValues: false,
       xmp: false,
       iptc: false,
@@ -59,9 +60,11 @@ export async function extractCaptureMetadata(
     metadata.cameraModel = cleanText(raw.Model)
     metadata.lensModel = cleanText(raw.LensModel)
     metadata.software = cleanText(raw.Software)
-    const orientation = finiteNumber(raw.Orientation)
-    if (orientation !== undefined && orientation >= 1 && orientation <= 8) {
-      metadata.orientation = Math.round(orientation)
+    const orientation = normalizeExifOrientation(raw.Orientation)
+    if (orientation !== undefined) {
+      metadata.orientation = orientation
+    } else if (raw.Orientation !== undefined) {
+      metadata.warnings.push('Die EXIF-Bildausrichtung konnte nicht eindeutig gelesen werden.')
     }
   } catch {
     metadata.warnings.push('Vorhandene EXIF-Metadaten konnten nicht vollständig gelesen werden.')
@@ -78,6 +81,28 @@ function cleanText(value: unknown): string | undefined {
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+const EXIF_ORIENTATION_TEXT = new Map<string, number>([
+  ['horizontal (normal)', 1],
+  ['mirror horizontal', 2],
+  ['rotate 180', 3],
+  ['mirror vertical', 4],
+  ['mirror horizontal and rotate 270 cw', 5],
+  ['rotate 90 cw', 6],
+  ['mirror horizontal and rotate 90 cw', 7],
+  ['rotate 270 cw', 8],
+])
+
+/** Accepts both raw EXIF values and the human-readable values returned by exifr. */
+export function normalizeExifOrientation(value: unknown): number | undefined {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value >= 1 && value <= 8 ? value : undefined
+  }
+  if (typeof value !== 'string') return undefined
+  const normalized = value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('en-US')
+  if (/^[1-8]$/.test(normalized)) return Number(normalized)
+  return EXIF_ORIENTATION_TEXT.get(normalized)
 }
 
 function validOffset(value: unknown): string | undefined {

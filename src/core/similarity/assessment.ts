@@ -11,6 +11,7 @@ interface ModeAssessmentRules {
   almostCertainScore: number
   probableScore: number
   reviewScore: number
+  reviewSsimFloor: number
   aspectRatioTolerance: number
   featureMinimum: number
   aiMinimum: number
@@ -23,6 +24,7 @@ export const ASSESSMENT_MODE_RULES: Readonly<Record<SensitivityMode, ModeAssessm
       almostCertainScore: 93,
       probableScore: 85,
       reviewScore: 68,
+      reviewSsimFloor: 0.84,
       aspectRatioTolerance: 0.04,
       featureMinimum: 0.88,
       aiMinimum: 0.92,
@@ -32,6 +34,7 @@ export const ASSESSMENT_MODE_RULES: Readonly<Record<SensitivityMode, ModeAssessm
       almostCertainScore: 89,
       probableScore: 78,
       reviewScore: 60,
+      reviewSsimFloor: 0.76,
       aspectRatioTolerance: 0.1,
       featureMinimum: 0.78,
       aiMinimum: 0.86,
@@ -41,6 +44,7 @@ export const ASSESSMENT_MODE_RULES: Readonly<Record<SensitivityMode, ModeAssessm
       almostCertainScore: 84,
       probableScore: 68,
       reviewScore: 50,
+      reviewSsimFloor: 0.64,
       aspectRatioTolerance: 0.2,
       featureMinimum: 0.68,
       aiMinimum: 0.78,
@@ -72,6 +76,67 @@ function assertFiniteInRange(value: number, minimum: number, maximum: number, na
   if (!Number.isFinite(value) || value < minimum || value > maximum) {
     throw new RangeError(`${name} must be between ${minimum} and ${maximum}.`)
   }
+}
+
+export interface CandidateGateMetrics {
+  aHashDistance: number
+  dHashDistance: number
+  pHashDistance: number
+  aspectRatioDifference: number
+  luminanceDifference: number
+}
+
+/**
+ * Cheap high-recall gate used before SSIM. The caller supplies distances from
+ * the best quarter-turn alignment, so EXIF/display rotation cannot discard an
+ * otherwise identical pair.
+ */
+export function isPlausibleVisualCandidate(
+  metrics: CandidateGateMetrics,
+  thresholds: Pick<AnalysisSettings, 'aHashThreshold' | 'dHashThreshold' | 'pHashThreshold'>,
+): boolean {
+  for (const [name, value] of Object.entries(metrics)) {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new RangeError(`${name} must be a finite, non-negative number.`)
+    }
+  }
+  const closestHash = Math.min(
+    metrics.aHashDistance,
+    metrics.dHashDistance,
+    metrics.pHashDistance,
+  )
+  const twoHashesAgree =
+    Number(metrics.aHashDistance <= thresholds.aHashThreshold + 3) +
+      Number(metrics.dHashDistance <= thresholds.dHashThreshold + 3) +
+      Number(metrics.pHashDistance <= thresholds.pHashThreshold + 3) >=
+    2
+  const nearExact = closestHash <= 4
+  const aspectCompatible = metrics.aspectRatioDifference <= 0.38 || nearExact
+  const luminanceCompatible = metrics.luminanceDifference <= 0.35 || nearExact
+  return aspectCompatible && luminanceCompatible && (nearExact || twoHashesAgree)
+}
+
+/**
+ * Candidates from an old cache have no quarter-turn hash variants. Give
+ * portrait/landscape swaps one narrow rescue path so a rotated near-duplicate
+ * can still reach SSIM without reopening the archive.
+ */
+export function isPlausibleLegacyQuarterTurnCandidate(
+  metrics: CandidateGateMetrics,
+  sourceAspectRatio: number,
+  targetAspectRatio: number,
+): boolean {
+  const reciprocalAspectDifference = Math.abs(sourceAspectRatio - 1 / targetAspectRatio) /
+    Math.max(sourceAspectRatio, 1 / targetAspectRatio, Number.EPSILON)
+  if (reciprocalAspectDifference > 0.08 || metrics.luminanceDifference > 0.08) return false
+  const closestHash = Math.min(
+    metrics.aHashDistance,
+    metrics.dHashDistance,
+    metrics.pHashDistance,
+  )
+  const meanHashDistance =
+    (metrics.aHashDistance + metrics.dHashDistance + metrics.pHashDistance) / 3
+  return closestHash <= 32 && meanHashDistance <= 38
 }
 
 function addHashEvidence(
@@ -197,6 +262,13 @@ export function calculateSimilarityAssessment(
     Number(histogramSupport) +
     Number(featureSupport) +
     Number(aiSupport)
+  const hashConsensus = passingHashCount >= 2
+  const structuralReviewSupport =
+    metrics.ssim !== undefined && metrics.ssim >= rules.reviewSsimFloor
+  const reviewSupport =
+    (structuralReviewSupport && (hashConsensus || histogramSupport)) ||
+    (featureSupport && (hashSupport || ssimSupport || histogramSupport)) ||
+    (aiSupport && (hashSupport || ssimSupport || histogramSupport || featureSupport))
 
   let category: SimilarityCategory
   if (
@@ -207,7 +279,7 @@ export function calculateSimilarityAssessment(
     category = 'almost-certain-duplicate'
   } else if (score >= rules.probableScore && supportFamilies >= 2) {
     category = 'probable-duplicate'
-  } else if (score >= rules.reviewScore || supportFamilies >= 1) {
+  } else if (score >= rules.reviewScore && reviewSupport) {
     category = 'needs-review'
   } else {
     category = 'probably-different'
@@ -283,4 +355,3 @@ export function calculateSimilarityAssessment(
     metrics: { ...metrics },
   }
 }
-

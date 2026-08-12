@@ -76,19 +76,46 @@ describe('calculateSimilarityAssessment', () => {
     const strict = calculateSimilarityAssessment(borderline, settingsForMode('strict', 2))
     const balanced = calculateSimilarityAssessment(borderline, settingsForMode('balanced', 2))
     const sensitive = calculateSimilarityAssessment(borderline, settingsForMode('sensitive', 2))
-    expect(strict.category).toBe('needs-review')
+    expect(strict.category).toBe('probably-different')
     expect(balanced.category).toBe('probable-duplicate')
     expect(sensitive.category).toBe('probable-duplicate')
   })
 
-  it('does not claim certainty from one metric alone', () => {
+  it('does not emit a review candidate from one hash metric alone', () => {
     const assessment = calculateSimilarityAssessment(
       { pHashDistance: 0 },
       settingsForMode('balanced', 1),
     )
     expect(assessment.score).toBe(100)
-    expect(assessment.category).toBe('needs-review')
+    expect(assessment.category).toBe('probably-different')
     expect(assessment.confidence).toBe('low')
+  })
+
+  it('does not emit a review candidate from a matching histogram alone', () => {
+    const assessment = calculateSimilarityAssessment(
+      { histogramSimilarity: 1 },
+      settingsForMode('balanced', 1),
+    )
+    expect(assessment.score).toBe(100)
+    expect(assessment.category).toBe('probably-different')
+    expect(assessment.confidence).toBe('low')
+  })
+
+  it('rejects the weak single-scene evidence seen in false-positive construction photos', () => {
+    const assessment = calculateSimilarityAssessment(
+      {
+        aHashDistance: 14,
+        dHashDistance: 21,
+        pHashDistance: 17,
+        ssim: 0.74,
+        histogramSimilarity: 0.79,
+        aspectRatioDifference: 0.01,
+        resolutionRatio: 0.9,
+      },
+      settingsForMode('balanced', 1),
+    )
+    expect(assessment.score).toBeGreaterThanOrEqual(60)
+    expect(assessment.category).toBe('probably-different')
   })
 
   it('marks conflicting evidence as probably different', () => {
@@ -113,4 +140,3 @@ describe('calculateSimilarityAssessment', () => {
     ).toThrow(/between 0 and 64/)
   })
 })
-

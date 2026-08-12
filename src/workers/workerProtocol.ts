@@ -29,6 +29,13 @@ export interface ImageAnalyzedPayload {
   feature: ImageFeatureRecord
   thumbnail: ArrayBuffer
   thumbnailMime: string
+  timings: {
+    metadataMs: number
+    decodeMs: number
+    analysisMs: number
+    thumbnailMs: number
+    totalMs: number
+  }
 }
 
 export type ImageWorkerResponse =

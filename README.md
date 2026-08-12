@@ -1,12 +1,23 @@
-# Bildabgleich Lokal 1.1
+# Bildabgleich Lokal 1.2
 
-Bildabgleich Lokal 1.1 ist eine statische Webanwendung zur Sichtung doppelter und visuell ähnlicher Baustellenfotos. Eine ZIP-Datei wird direkt im Browser geöffnet, in kleinen Arbeitsschritten analysiert und als überprüfbare Ergebnisgruppen dargestellt. Neben dem Bildinhalt kann die Anwendung lokal vorhandene Aufnahmeinformationen als zusätzlichen Prüfkontext anzeigen. Sie löscht und verändert keine Originaldateien.
+Bildabgleich Lokal 1.2 ist eine statische Webanwendung zur Sichtung doppelter und visuell ähnlicher Baustellenfotos. Eine ZIP-Datei wird direkt im Browser geöffnet, in kleinen Arbeitsschritten analysiert und als überprüfbare Ergebnisgruppen dargestellt. Neben dem Bildinhalt kann die Anwendung lokal vorhandene Aufnahmeinformationen als zusätzlichen Prüfkontext anzeigen. Sie löscht und verändert keine Originaldateien.
 
 Der erste Anwendungsfall sind Fotolieferungen aus dem Glasfaserausbau, die als Grundlage einer Budget- oder Leistungsprüfung dienen. Die Anwendung unterstützt dabei ausschließlich den nachvollziehbaren Bildabgleich. Sie berechnet keine Budgets oder Baumengen und trifft keine finanzielle Entscheidung automatisch.
 
 > **Datenschutz-Kernaussage:** Alle Bilder und aus ihnen gelesenen Metadaten werden ausschließlich lokal in diesem Browser verarbeitet. Es werden keine Bilder, GPS-Koordinaten oder sonstigen Aufnahmeinformationen an einen Server übertragen.
 
 Die Anwendung ist für aktuelle Versionen von Microsoft Edge und Google Chrome unter Windows sowie für einen Einsatz ohne lokale Installation gedacht. Nach der Bereitstellung auf GitHub Pages reicht ein normaler Browser. Der Quellcode ist eine produktionsnahe erste Version, aber kein forensisches Beweismittel und kein Ersatz für die manuelle Freigabe.
+
+## Neu in Version 1.2
+
+- Vierteldrehungen (0°, 90°, 180° und 270°) werden bei der visuellen Suche automatisch berücksichtigt. Dadurch werden auch neu gespeicherte Kopien gefunden, bei denen nur eine Datei einen EXIF-Orientation-Eintrag besitzt.
+- Schwache Hinweise, manuelle Prüffälle und starke Treffer sind in der Oberfläche getrennt. Unsichere Kandidaten werden niemals durch die Sammelaktion bestätigt.
+- UI, CSV und JSON verwenden dieselbe konkrete Vergleichskante; Paarentscheidungen werden unabhängig pro Vergleich gespeichert und der JSON-Bericht besitzt Exportformat-Version 4.
+- TIFF-Orientierungen 1 bis 8 einschließlich Spiegelungen werden vor Analyse und Vorschau korrekt angewendet.
+- Die Fortschrittsanzeige nennt den aktiven Worker-Modus, die Workerzahl und echte Phasenlaufzeiten. Ein langsamer Hauptthread-Fallback wird sichtbar gemeldet.
+- EXIF-Auslesen und Bilddekodierung laufen parallel; Fortschritts- und Cachearbeit blockieren die Bild-Worker weniger.
+
+Gespeicherte Analysen aus Version 1.1 werden wegen der geänderten Bildmerkmale bewusst nicht übernommen und müssen einmal neu berechnet werden. Die Original-ZIP bleibt dabei weiterhin vollständig lokal.
 
 ## Was die Anwendung leistet
 

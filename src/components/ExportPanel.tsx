@@ -1,13 +1,14 @@
-import { Braces, Download, FileSpreadsheet, ListChecks } from 'lucide-react'
+import { Braces, Download, FileSpreadsheet, ListChecks, Printer } from 'lucide-react'
 
 interface ExportPanelProps {
   disabled: boolean
   onCsv: () => void
   onJson: () => void
   onCleanedList: () => void
+  onPrint: () => void
 }
 
-export function ExportPanel({ disabled, onCsv, onJson, onCleanedList }: ExportPanelProps) {
+export function ExportPanel({ disabled, onCsv, onJson, onCleanedList, onPrint }: ExportPanelProps) {
   return (
     <section className="export-panel card" aria-labelledby="export-title">
       <div><span className="eyebrow">Prüfnachweis</span><h2 id="export-title">Ergebnisse exportieren</h2><p>Die Berichte enthalten Dateipfade, Messwerte und Ihre Entscheidungen – keine Originalbilder. Der JSON-Bericht enthält vorhandene EXIF-Daten einschließlich genauer GPS-Koordinaten; der normale CSV-Bericht nicht.</p></div>
@@ -15,8 +16,9 @@ export function ExportPanel({ disabled, onCsv, onJson, onCleanedList }: ExportPa
         <button className="button secondary" type="button" disabled={disabled} onClick={onCsv}><FileSpreadsheet size={18} aria-hidden="true" /> CSV-Bericht</button>
         <button className="button secondary" type="button" disabled={disabled} onClick={onJson}><Braces size={18} aria-hidden="true" /> JSON-Bericht</button>
         <button className="button secondary" type="button" disabled={disabled} onClick={onCleanedList}><ListChecks size={18} aria-hidden="true" /> Bereinigte Dateiliste</button>
+        <button className="button secondary" type="button" disabled={disabled} onClick={onPrint}><Printer size={18} aria-hidden="true" /> Aktuelle Ansicht drucken</button>
       </div>
-      <small><Download size={14} aria-hidden="true" /> Downloads werden nur lokal in diesem Browser erzeugt.</small>
+      <small><Download size={14} aria-hidden="true" /> Downloads und die Druckansicht werden nur lokal in diesem Browser erzeugt.</small>
     </section>
   )
 }

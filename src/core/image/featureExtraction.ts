@@ -1,6 +1,6 @@
-import { averageHash, differenceHash, perceptualHash } from '../hashing'
 import { APP_LIMITS } from '../config/limits'
 import type { CaptureMetadata, ImageFeatureRecord, SupportedImageFormat } from '../types'
+import { createRotatedHashVariants } from './rotationFeatures'
 
 export interface ImageIdentity {
   id: string
@@ -72,21 +72,34 @@ export function createFeatureRecord(
   height: number,
   imageData: ImageData,
   metadata?: CaptureMetadata,
+  displayedOrientationApplied = true,
 ): ImageFeatureRecord {
   const { archiveModifiedAt: _archiveModifiedAt, ...featureIdentity } = identity
   void _archiveModifiedAt
   const gray = rgbaToGray(imageData.data)
   const luminanceMean = gray.reduce((sum, value) => sum + value, 0) / Math.max(1, gray.length) / 255
   const analysisSize = APP_LIMITS.analysisSize
+  const aspectRatio = width / Math.max(1, height)
+  const rotationVariants = createRotatedHashVariants(
+    gray,
+    analysisSize,
+    analysisSize,
+    aspectRatio,
+  )
+  const primaryHashes = rotationVariants[0]
+  if (!primaryHashes) throw new Error('The primary image hashes could not be calculated.')
 
   return {
     ...featureIdentity,
     width,
     height,
-    aspectRatio: width / Math.max(1, height),
-    aHash: averageHash(gray, analysisSize, analysisSize),
-    dHash: differenceHash(gray, analysisSize, analysisSize),
-    pHash: perceptualHash(gray, analysisSize, analysisSize),
+    aspectRatio,
+    aHash: primaryHashes.aHash,
+    dHash: primaryHashes.dHash,
+    pHash: primaryHashes.pHash,
+    ...(displayedOrientationApplied || metadata?.orientation === undefined || metadata.orientation === 1
+      ? { rotationVariants }
+      : {}),
     histogram: createHsvHistogram(imageData.data),
     luminanceMean,
     ...(metadata ? { metadata } : {}),
