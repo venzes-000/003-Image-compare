@@ -4,8 +4,9 @@ const MIB = 1024 * 1024
 const GIB = 1024 * MIB
 
 export const APP_LIMITS = Object.freeze({
-  maxImages: 3_000,
-  maxEntries: 10_000,
+  maxImages: 10_000,
+  recommendedImagesPerArchive: 3_000,
+  maxEntries: 25_000,
   maxSingleImageBytes: 75 * MIB,
   maxTotalUncompressedBytes: 20 * GIB,
   maxCompressionRatio: 100,

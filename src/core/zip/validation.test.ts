@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { APP_LIMITS } from '../config/limits'
 import { ZipValidationError } from './errors'
 import { validateZipEntries, type ZipEntryMetadataLike } from './validation'
 
@@ -61,6 +62,34 @@ describe('ZIP-Limitprüfung', () => {
     expectCode(
       () => validateZipEntries([entry('a.jpg', 6, 5), entry('text.txt', 6, 5)], { maxTotalUncompressedBytes: 10 }),
       'archive-too-large',
+    )
+  })
+
+  it('erlaubt exakt 10.000 Bilder und blockiert das 10.001. Bild', () => {
+    const atLimit = Array.from(
+      { length: APP_LIMITS.maxImages },
+      (_, index) => entry(`bild-${index.toString().padStart(5, '0')}.jpg`),
+    )
+    const directoryEntries = Array.from(
+      { length: 100 },
+      (_, index) => entry(`ordner-${index}/`, 0, 0, { directory: true }),
+    )
+    expect(validateZipEntries([...directoryEntries, ...atLimit]).images).toHaveLength(APP_LIMITS.maxImages)
+    expectCode(
+      () => validateZipEntries([...atLimit, entry('bild-10000.jpg')]),
+      'too-many-images',
+    )
+  })
+
+  it('begrenzt ZIP-Dateien auf 25.000 Einträge', () => {
+    const atLimit = Array.from(
+      { length: APP_LIMITS.maxEntries },
+      (_, index) => entry(`begleitdatei-${index}.txt`),
+    )
+    expect(validateZipEntries(atLimit).summary.totalEntries).toBe(APP_LIMITS.maxEntries)
+    expectCode(
+      () => validateZipEntries([...atLimit, entry('eine-zu-viel.txt')]),
+      'too-many-entries',
     )
   })
 

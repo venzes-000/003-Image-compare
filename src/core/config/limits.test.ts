@@ -3,8 +3,10 @@ import { APP_LIMITS, createDefaultSettings, getDefaultWorkerCount, settingsForMo
 
 describe('zentrale Anwendungsgrenzen', () => {
   it('verwendet die dokumentierten ZIP- und Speichergrenzen', () => {
-    expect(APP_LIMITS.maxImages).toBe(3_000)
-    expect(APP_LIMITS.maxEntries).toBe(10_000)
+    expect(APP_LIMITS.maxImages).toBe(10_000)
+    expect(APP_LIMITS.recommendedImagesPerArchive).toBe(3_000)
+    expect(APP_LIMITS.maxEntries).toBe(25_000)
+    expect(APP_LIMITS.maxEntries).toBeGreaterThanOrEqual(APP_LIMITS.maxImages * 2)
     expect(APP_LIMITS.maxSingleImageBytes).toBe(75 * 1024 * 1024)
     expect(APP_LIMITS.maxTotalUncompressedBytes).toBe(20 * 1024 * 1024 * 1024)
     expect(APP_LIMITS.maxCompressionRatio).toBe(100)

@@ -1,4 +1,5 @@
 import { createDuplicateGroups } from '../clustering'
+import { APP_LIMITS } from '../config/limits'
 import { zipArchiveService, createZipFingerprint, type ZipImageData } from '../zip'
 import type {
   AnalysisProgress,
@@ -84,6 +85,9 @@ export class AnalysisEngine {
     const zipFingerprint = await createZipFingerprint(file)
     const inspection = await zipArchiveService.inspect(file, { signal: this.abortController.signal })
     this.assertNotCancelled()
+    const largeArchiveWarning = inspection.images.length > APP_LIMITS.recommendedImagesPerArchive
+      ? `Großbestand mit ${inspection.images.length.toLocaleString('de-DE')} Bildern: Die Analyse kann mehrere Stunden dauern. Verwenden Sie möglichst eine interne SSD und lassen Sie den Tab geöffnet.`
+      : undefined
 
     this.updateProgress({
       phase: 'collecting-files',
@@ -92,6 +96,7 @@ export class AnalysisEngine {
       total: inspection.images.length,
       message: `${inspection.images.length.toLocaleString('de-DE')} Bilddateien gefunden`,
       startedAt,
+      warning: largeArchiveWarning,
     })
 
     const images: ImageFeatureRecord[] = []
@@ -102,7 +107,7 @@ export class AnalysisEngine {
     let decodeErrorCount = 0
     this.imagePool = new ImageWorkerPool(settings.workerCount, {
       onRuntimeFallback: (reason) => this.updateProgress({
-        warning: `Ein Bild-Worker ist ausgefallen: ${reason}`,
+        warning: [this.progress.warning, `Ein Bild-Worker ist ausgefallen: ${reason}`].filter(Boolean).join(' '),
       }),
     })
     const execution: NonNullable<AnalysisProgress['execution']> = {
@@ -116,6 +121,11 @@ export class AnalysisEngine {
         ? `Langsamer KompatibilitÃ¤tsmodus: ${execution.fallbackReason ?? 'Bild-Worker nicht verfÃ¼gbar'}.`
         : undefined,
     })
+    if (largeArchiveWarning) {
+      this.updateProgress({
+        warning: [this.progress.warning, largeArchiveWarning].filter(Boolean).join(' '),
+      })
+    }
 
     const processImage = async (image: ZipImageData, index: number): Promise<void> => {
       try {

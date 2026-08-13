@@ -60,7 +60,8 @@ export function FileSelection({ file, disabled, onSelect }: FileSelectionProps) 
       </div>
       <div className="file-guidance">
         <span><Images size={17} aria-hidden="true" /> JPG, PNG, WebP, HEIC/HEIF, AVIF, GIF, BMP und TIFF</span>
-        <span><Archive size={17} aria-hidden="true" /> Bis zu {APP_LIMITS.maxImages.toLocaleString('de-DE')} Bilder</span>
+        <span><Archive size={17} aria-hidden="true" /> Technisches Maximum: {APP_LIMITS.maxImages.toLocaleString('de-DE')} Bilder</span>
+        <span><Info size={17} aria-hidden="true" /> Maximal {formatBytes(APP_LIMITS.maxTotalUncompressedBytes)} entpackt</span>
         <span><Info size={17} aria-hidden="true" /> Tab während der Analyse geöffnet lassen</span>
       </div>
     </section>

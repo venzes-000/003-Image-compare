@@ -91,11 +91,11 @@ Die Startseite führt eine Systemprüfung aus und zeigt verständliche Fallback-
 7. Prüfen Sie Gruppen und Vergleichswerte manuell.
 8. Exportieren Sie einen CSV- oder JSON-Bericht. Es werden keine Originalbilder in den Bericht kopiert.
 
-Die Laufzeit hängt stark von Bildanzahl, Auflösung, Kompression, Prozessor, verfügbarem RAM, Browser und Energiesparmodus ab. 3.000 Bilder sind eine Auslegungsgrenze, keine Laufzeitgarantie für jeden Arbeitslaptop.
+Die Laufzeit hängt stark von Bildanzahl, Auflösung, Kompression, Prozessor, verfügbarem RAM, Browser, Datenträger und Energiesparmodus ab. 10.000 Bilder sind das technische Sicherheitslimit, nicht die empfohlene Losgröße. Für verlässlichere Arbeitsläufe werden Teilarchive mit höchstens 3.000 Bildern empfohlen.
 
 ## Analyseverfahren
 
-Die Pipeline vermeidet teure Vollbildvergleiche aller Paare. Bei 3.000 Bildern gäbe es ungefähr 4,5 Millionen Paare; kleine Hashwerte lassen sich günstig vergleichen, genaue Strukturprüfungen werden dagegen auf plausible Kandidaten begrenzt.
+Die Pipeline vermeidet teure Vollbildvergleiche aller Paare. Bei 10.000 Bildern prüft die Hash-Kandidatensuche knapp 50 Millionen Paare. Die Laufzeit wächst in dieser Phase quadratisch; genaue Strukturprüfungen bleiben dagegen auf plausible Kandidaten begrenzt.
 
 1. **ZIP-Prüfung:** Anzahl, Pfade, Dateigrößen, Kompressionsverhältnisse und Formate werden validiert. Ordner, Systemdateien und nicht unterstützte Einträge werden übersprungen.
 2. **Dekodierung:** JPEG, PNG, WebP, AVIF, GIF und BMP nutzen nach Möglichkeit die lokale Browserdekodierung. HEIC/HEIF lädt seinen lokal gebündelten Decoder erst beim ersten entsprechenden Bild nach; TIFF wird lokal über `utif2` dekodiert. Bei Animationen, HEIC-Sequenzen und mehrseitigen TIFF-Dateien wird nur das erste Bild beziehungsweise der erste Frame analysiert.
@@ -135,8 +135,8 @@ Alle zentralen Werte stehen in `src/core/config/limits.ts`:
 
 | Grenze | Standard | Zweck |
 | --- | ---: | --- |
-| unterstützte Bilder | 3.000 | verhindert unbegrenzte Verarbeitung |
-| ZIP-Einträge insgesamt | 10.000 | begrenzt Archive mit sehr vielen Kleindateien |
+| unterstützte Bilder | 10.000 | harte Schutzgrenze; bis 3.000 pro Arbeitslauf empfohlen |
+| ZIP-Einträge insgesamt | 25.000 | lässt zusätzliche Ordner- und Begleitdateien zu und begrenzt Kleindatei-Archive |
 | einzelnes Bild, unkomprimiert | 75 MiB | begrenzt extreme Einzeldateien |
 | Summe unkomprimierter Daten | 20 GiB | frühe Warnung vor sehr großen Archiven |
 | maximales Kompressionsverhältnis | 100:1 | Schutz gegen auffällige ZIP-Bomben |

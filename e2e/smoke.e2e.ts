@@ -11,6 +11,8 @@ test('analysiert eine ZIP-Datei lokal und lädt einen CSV-Bericht herunter', asy
     if (target.hostname !== '127.0.0.1' && target.hostname !== 'localhost') externalRequests.push(request.url())
   })
   await page.goto('./')
+  await expect(page.getByText('Technisches Maximum: 10.000 Bilder')).toBeVisible()
+  await expect(page.getByText(/Version 1\.2\.1/)).toBeVisible()
 
   await expect(
     page.getByText(/Alle Bilder sowie vorhandene EXIF-, Aufnahmezeit- und GPS-Daten werden ausschließlich lokal/i),
