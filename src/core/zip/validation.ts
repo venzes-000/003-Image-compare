@@ -179,7 +179,7 @@ export function validateZipEntries(
     if (images.length > limits.maxImages) {
       throw new ZipValidationError(
         'too-many-images',
-        `Die ZIP-Datei enthält mehr als ${formatInteger(limits.maxImages)} unterstützte Bilder. Bitte teilen Sie den Bestand auf mehrere ZIP-Dateien auf.`,
+        `Die ZIP-Datei enthält mehr als ${formatInteger(limits.maxImages)} unterstützte Bilder. Das ist das technische Sicherheitslimit; bitte teilen Sie den Bestand möglichst in ZIP-Dateien mit höchstens ${formatInteger(APP_LIMITS.recommendedImagesPerArchive)} Bildern auf.`,
         { path },
       )
     }

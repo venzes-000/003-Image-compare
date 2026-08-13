@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArchiveRestore, CheckCircle2, HardDriveDownload, Play, ShieldCheck, Trash2 } from 'lucide-react'
 import { AnalysisEngine, type AnalysisCacheAdapter } from '../core/pipeline/analysisEngine'
-import { createDefaultSettings } from '../core/config/limits'
+import { APP_LIMITS, createDefaultSettings } from '../core/config/limits'
 import { createZipFingerprint, zipArchiveService } from '../core/zip'
 import { analysisStorage } from '../core/storage'
 import { decodeSpecialImage, needsSpecialDecoder } from '../core/image/specialDecoders'
@@ -524,7 +524,7 @@ function App() {
         {notice && <p className="notice-message" role="status"><CheckCircle2 size={17} aria-hidden="true" /> {notice}</p>}
         {!cachedResult && (
           <div className="start-actions">
-            <small>Die Dauer hängt von Bildanzahl, Auflösung und Leistung des Arbeitslaptops ab. Bei 3.000 Bildern kann die Prüfung längere Zeit benötigen.</small>
+            <small>Technisch sind bis zu {APP_LIMITS.maxImages.toLocaleString('de-DE')} Bilder zulässig. Für verlässlichere Arbeitsläufe empfehlen wir Teilarchive mit höchstens {APP_LIMITS.recommendedImagesPerArchive.toLocaleString('de-DE')} Bildern; große Bestände können mehrere Stunden benötigen.</small>
             <button className="button primary" type="button" disabled={!file || running || !browserReady} onClick={() => { void startAnalysis() }}><Play size={18} fill="currentColor" aria-hidden="true" /> Analyse starten</button>
           </div>
         )}
